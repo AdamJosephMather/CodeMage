@@ -23,6 +23,8 @@ type Edit struct {
 	leftchar int
 	cursor Cursor
 	use_line_numbers bool
+	
+	current_mode string
 }
 
 type Cursor struct {
@@ -39,6 +41,7 @@ var current_window string
 var file_name string
 
 var defStyle tcell.Style
+var invertedStyle tcell.Style
 
 var textedit Edit
 
@@ -90,7 +93,7 @@ func createNew(s tcell.Screen) {
 	cursor := Cursor{row: 0, col: 0, row_anchor: 0, col_anchor: 0}
 	buffer[0] = ""
 	
-	textedit = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true}
+	textedit = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
 	
 	redrawFullScreen(s)
 }
@@ -144,8 +147,17 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		runes := []rune(buffer[line_num])
 		xraw := 0
 		
+		curs_line := cursor_pos == line_num
+		curs_char := cursor.col
+		
+		curs_x := -1
+		
 		for true {
 			charIndx := edit.leftchar + xraw
+			
+			if curs_line && charIndx == curs_char {
+				curs_x = xraw
+			}
 			
 			if charIndx >= len(runes) {
 				lineToDraw += strings.Repeat(" ", edit.width-len(lineToDraw))
@@ -156,20 +168,30 @@ func drawEdit(s tcell.Screen, edit Edit) {
 			
 			if char != '\t'{
 				lineToDraw += string(char)
-				xraw ++
 			}else{
 				for range(4) {
 					lineToDraw += " "
-					xraw ++
-					if xraw == edit.width-line_num_width {break}
+					if len(lineToDraw) == edit.width {break}
 				}
 			}
-			if xraw == edit.width-line_num_width {
+			
+			xraw ++
+			
+			if len(lineToDraw) == edit.width {
 				break
 			}
 		}
+		
 		x := edit.col+line_num_width
-		emitStr(s, x, y, defStyle, lineToDraw)
+		
+		if curs_x != -1 {
+			emitStr(s, x, y, defStyle, lineToDraw[:curs_x])
+			emitStr(s, x+curs_x+1, y, defStyle, lineToDraw[curs_x+1:])
+			emitStr(s, x+curs_x, y, invertedStyle, string(lineToDraw[curs_x]))
+			
+		}else{
+			emitStr(s, x, y, defStyle, lineToDraw)
+		}
 	}
 }
 
@@ -221,10 +243,10 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 	
 	if rune == 'j' {
 		moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
-	}
-	
-	if rune == 'k' {
+	}else if rune == 'k' {
 		moveCursor(MOVE_UP, keepAnchor, 1, edit)
+	}else {
+		edit.buffer[edit.cursor.row] += ev.Name()
 	}
 }
 
@@ -272,6 +294,7 @@ func main() {
 	s.EnableMouse()
 	
 	defStyle = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
+	invertedStyle = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
 	s.SetStyle(defStyle)
 	s.Clear()
 	s.HideCursor()
@@ -287,7 +310,7 @@ func main() {
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape {
 				return
-			} // to test git push once again again
+			}
 			
 			if current_window == "edit"{
 				handleKey(s, ev)
