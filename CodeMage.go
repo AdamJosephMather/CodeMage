@@ -287,7 +287,7 @@ func main() {
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape {
 				return
-			} // to test git push once again
+			} // to test git push once again again
 			
 			if current_window == "edit"{
 				handleKey(s, ev)
