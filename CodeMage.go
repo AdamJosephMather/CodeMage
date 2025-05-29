@@ -391,12 +391,16 @@ func deleteText(mode, repeat int, edit *Edit) {
 				
 				edit.cursor.col = len(joining_line)
 				
+				
 				edit.buffer[edit.cursor.row] += after_deleted
 				edit.buffer = append(edit.buffer[:edit.cursor.row+1], edit.buffer[edit.cursor.row+2:]...)
 			}else{
 				moveCursor(MOVE_LEFT, false, 1, edit)
 				edit.buffer[edit.cursor.row] = before_deleted+after_deleted
 			}
+			
+			edit.cursor.row_anchor = edit.cursor.row
+			edit.cursor.col_anchor = edit.cursor.col
 		}else if mode == DELETE {
 			moveCursor(MOVE_RIGHT, false, 1, edit)
 			deleteText(BACKSPACE, 1, edit)
