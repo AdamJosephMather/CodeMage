@@ -212,9 +212,10 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		}
 				
 		lineToDraw := ""
+		tru_col_current := 0
 		
 		runes := []rune(buffer[line_num])
-		xraw := 0
+		charIndx := 0
 		
 		curs_line := cursor_pos == line_num
 		curs_char := cursor.col
@@ -222,8 +223,6 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		styles := []tcell.Style{}
 		
 		for true {
-			charIndx := edit.leftchar + xraw
-			
 			is_cursor := curs_line && charIndx == curs_char
 			is_in_highlight := charIndx > minRng && charIndx < maxRng
 			
@@ -245,24 +244,30 @@ func drawEdit(s tcell.Screen, edit Edit) {
 			char := runes[charIndx]
 			
 			if char != '\t'{
-				lineToDraw += string(char)
-				styles = append(styles, cur_style)
+				if tru_col_current >= edit.leftchar {
+					lineToDraw += string(char)
+					styles = append(styles, cur_style)
+				}
+				tru_col_current ++
 			}else{
-				for range(4) {
-					lineToDraw += " "
-					if is_in_highlight {
-						styles = append(styles, highlightStyle)
-					}else{
-						styles = append(styles, defStyle)
+				for tab_indx := range(4) {
+					if tru_col_current >= edit.leftchar {
+						lineToDraw += " "
+						if tab_indx == 0 {
+							styles = append(styles, cur_style)
+						}else if is_in_highlight {
+							styles = append(styles, highlightStyle)
+						}else{
+							styles = append(styles, defStyle)
+						}
 					}
+					tru_col_current ++
 					
 					if len(lineToDraw) == edit.width {break}
-					
 				}
-				styles[len(styles)-4] = cur_style
 			}
 			
-			xraw ++
+			charIndx ++
 			
 			if len(lineToDraw) == edit.width {
 				break
