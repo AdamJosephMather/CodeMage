@@ -250,11 +250,16 @@ func drawEdit(s tcell.Screen, edit Edit) {
 			}else{
 				for range(4) {
 					lineToDraw += " "
-					styles = append(styles, defStyle)
+					if is_in_highlight {
+						styles = append(styles, highlightStyle)
+					}else{
+						styles = append(styles, defStyle)
+					}
+					
 					if len(lineToDraw) == edit.width {break}
 					
 				}
-				styles[len(styles)-1] = cur_style
+				styles[len(styles)-4] = cur_style
 			}
 			
 			xraw ++
@@ -265,12 +270,7 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		}
 		
 		x := edit.col+line_num_width
-		
-		if len(styles) != len(lineToDraw) {
-			emitStr(s, x, y, defStyle, "Len no matchy "+strconv.Itoa(len(styles)))
-		}else{
-			emitStrColored(s, x, y, styles, lineToDraw)
-		}
+		emitStrColored(s, x, y, styles, lineToDraw)
 	}
 }
 
@@ -397,6 +397,9 @@ func deleteText(mode, repeat int, edit *Edit) {
 				moveCursor(MOVE_LEFT, false, 1, edit)
 				edit.buffer[edit.cursor.row] = before_deleted+after_deleted
 			}
+		}else if mode == DELETE {
+			moveCursor(MOVE_RIGHT, false, 1, edit)
+			deleteText(BACKSPACE, 1, edit)
 		}
 	}
 }
@@ -474,6 +477,12 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			drawTitleBar(s)
 		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
 			deleteText(BACKSPACE, 1, edit)
+		}else if ev.Key() == tcell.KeyDelete {
+			deleteText(DELETE, 1, edit)
+		}else if ev.Key() == tcell.KeyEnter {
+			insertText(edit, "\n")
+		}else if rune == '\t' {
+			insertText(edit, "\t")
 		}
 	}else if edit.current_mode == "i"{
 		if ev.Key() == tcell.KeyEscape {
@@ -481,6 +490,8 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			drawTitleBar(s)
 		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
 			deleteText(BACKSPACE, 1, edit)
+		}else if ev.Key() == tcell.KeyDelete {
+			deleteText(DELETE, 1, edit)
 		}else if ev.Key() == tcell.KeyEnter {
 			insertText(edit, "\n")
 		}else {
@@ -644,7 +655,7 @@ func main() {
 	
 	titleColor := tcell.NewRGBColor(25, 25, 25)
 	highlightColor := tcell.NewRGBColor(100, 100, 100)
-	lineNumberColor := tcell.NewRGBColor(42, 42, 42)
+	lineNumberColor := tcell.NewRGBColor(50, 50, 50)
 	
 	defStyle = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
 	invertedStyle = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
