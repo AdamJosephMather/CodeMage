@@ -1,7 +1,6 @@
 package main
 
 import (
-//	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -12,6 +11,14 @@ import (
 	"golang.design/x/clipboard"
 )
 
+type BuffInfo struct {
+	ends_string bool
+	string_type rune
+	
+	indent_level int
+	add_indent bool
+}
+
 type Edit struct {
 	row int
 	col int
@@ -19,6 +26,9 @@ type Edit struct {
 	height int
 	
 	buffer []string
+	old_buffer []string
+	styles_buff []tcell.Style
+	buffer_info []BuffInfo
 	
 	toprow int
 	leftchar int
@@ -119,13 +129,23 @@ func createNew(s tcell.Screen) {
 	file_name = ""
 	
 	buffer := make([]string, 1)
+	old_buffer := make([]string, 1)
+	style_buff := []tcell.Style{}
+	buffer_info := make([]BuffInfo, 1)
 	
 	cursor := Cursor{row: 0, col: 0, row_anchor: 0, col_anchor: 0}
 	buffer[0] = ""
+	old_buffer[0] = ""
 	
-	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
+	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, old_buffer: old_buffer, styles_buff: style_buff, buffer_info: buffer_info, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
 	
 	redrawFullScreen(s)
+}
+
+func bufferEdited(edit *Edit) {
+	// Find edited sections (old_buffer)
+	// Recalc styles
+	// Save old_buffer
 }
 
 func repeatSlice[T any](s T, n int) []T {
