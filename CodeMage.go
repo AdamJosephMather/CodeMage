@@ -386,7 +386,7 @@ func deleteText(mode, repeat int, edit *Edit) {
 		edit.cursor.col = start_col
 		edit.cursor.row_anchor = start_row
 		edit.cursor.col_anchor = start_col
-		edit.cursor.preferencial_col = start_col
+		edit.cursor.preferencial_col = getTrueCol(start_col, start_row, edit)
 		
 		return
 	}
@@ -421,7 +421,7 @@ func deleteText(mode, repeat int, edit *Edit) {
 			
 			edit.cursor.row_anchor = edit.cursor.row
 			edit.cursor.col_anchor = edit.cursor.col
-			edit.cursor.preferencial_col = edit.cursor.col
+			edit.cursor.preferencial_col = getTrueCol(edit.cursor.col, edit.cursor.row, edit)
 		}else if mode == DELETE {
 			moveCursor(MOVE_RIGHT, false, 1, edit)
 			deleteText(BACKSPACE, 1, edit)
@@ -478,7 +478,7 @@ func insertText(edit *Edit, text string) {
 	edit.cursor.col = end_char
 	edit.cursor.row_anchor = end_line
 	edit.cursor.col_anchor = end_char
-	edit.cursor.preferencial_col = end_char
+	edit.cursor.preferencial_col = getTrueCol(end_char, end_line, edit)
 }
 
 func getCursorSelection(edit *Edit) string {
@@ -814,7 +814,7 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	nx, ny := movePointInText(x, y, action, repeat, edit)
 	
 	if action == MOVE_DOWN || action == MOVE_UP {
-		nx = edit.cursor.preferencial_col
+		nx = getFalseCol(edit.cursor.preferencial_col, ny, edit)
 		if nx > len(edit.buffer[ny]) {
 			nx = len(edit.buffer[ny])
 		}
@@ -829,7 +829,7 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	}
 	
 	if action == MOVE_LEFT || action == MOVE_RIGHT || action == WORD_LEFT || action == WORD_RIGHT {
-		edit.cursor.preferencial_col = nx
+		edit.cursor.preferencial_col = getTrueCol(nx, ny, edit)
 	}
 }
 
