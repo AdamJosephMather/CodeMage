@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
+	"golang.design/x/clipboard"
 )
 
 type Edit struct {
@@ -54,9 +55,21 @@ var MOVE_DOWN = 1
 var MOVE_UP = 2
 var MOVE_LEFT = 3
 var MOVE_RIGHT = 4
+var WORD_LEFT = 7
+var WORD_RIGHT = 8
 
 var BACKSPACE = 5
 var DELETE = 6
+
+var WHITESPACE = " \t"
+var PUNCTUATION = "./>,<-_=+[]{}|\\)(*&^%$#@!`~:;'\"?"
+
+var NORMAL_CHAR_TYPE = 9
+var WHITESPACE_CHAR_TYPE = 10
+var PUNCTUATION_CHAR_TYPE = 11
+
+var BACKSPACE_WORD = 12
+var DELETE_WORD = 13
 
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
@@ -412,6 +425,12 @@ func deleteText(mode, repeat int, edit *Edit) {
 		}else if mode == DELETE {
 			moveCursor(MOVE_RIGHT, false, 1, edit)
 			deleteText(BACKSPACE, 1, edit)
+		}else if mode == BACKSPACE_WORD {
+			edit.cursor.col_anchor, edit.cursor.row_anchor = movePointInText(edit.cursor.col_anchor, edit.cursor.row_anchor, WORD_LEFT, 1, edit)
+			deleteText(BACKSPACE, 1, edit)
+		}else if mode == DELETE_WORD {
+			edit.cursor.col_anchor, edit.cursor.row_anchor = movePointInText(edit.cursor.col_anchor, edit.cursor.row_anchor, WORD_RIGHT, 1, edit)
+			deleteText(BACKSPACE, 1, edit)
 		}
 	}
 }
@@ -462,19 +481,40 @@ func insertText(edit *Edit, text string) {
 	edit.cursor.preferencial_col = end_char
 }
 
+func getCursorSelection(edit *Edit) string {
+	s_c, s_r := edit.cursor.col, edit.cursor.row
+	e_c, e_r := edit.cursor.col_anchor, edit.cursor.row_anchor
+	
+	if s_c == e_c && s_r == e_r {
+		return ""
+	}
+	
+	if e_r < s_r {
+		s_r, e_r = e_r, s_r
+		s_c, e_c = e_c, s_c
+	}else if e_r == s_r && s_c > e_c {
+		e_c, s_c = s_c, e_c
+	}
+	
+	if s_r == e_r {
+		return edit.buffer[s_r][s_c:e_c]
+	}else{
+		lines := append([]string(nil), edit.buffer[s_r:e_r+1]...)
+		lines[0] = lines[0][s_c:]
+		lines[len(lines)-1] = lines[len(lines)-1][:e_c]
+		return strings.Join(lines, "\n")
+	}
+}
+
 func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 	rawrune := ev.Rune()
 	
 	rune := unicode.ToLower(rawrune)
 	
+	control_held := ev.Modifiers()&tcell.ModCtrl != 0
+	keepAnchor   := ev.Modifiers()&tcell.ModShift != 0
 	
 	if edit.current_mode == "n" {
-		keepAnchor := false
-		
-		if ev.Modifiers() & tcell.ModShift != 0{
-			keepAnchor = true
-		}
-		
 		if ev.Key() == tcell.KeyEnter{
 			insertText(edit, "\n")
 		}else if rune == 'j' {
@@ -485,13 +525,51 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			moveCursor(MOVE_LEFT, keepAnchor, 1, edit)
 		}else if rune == 'l' {
 			moveCursor(MOVE_RIGHT, keepAnchor, 1, edit)
+		}else if rune == 'e' {
+			moveCursor(WORD_RIGHT, keepAnchor, 1, edit)
+		}else if rune == 'w' {
+			moveCursor(WORD_LEFT, keepAnchor, 1, edit)
+		}else if rune == 'v' {
+			text := clipboard.Read(clipboard.FmtText)
+			insertText(edit, string(text))
+		}else if rune == 'c' {
+			textToCopy := getCursorSelection(edit)
+			clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		}else if rune == 'x' {
+			textToCopy := getCursorSelection(edit)
+			clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+			deleteText(BACKSPACE, 1, edit)
 		}else if rune == 'i' {
 			edit.current_mode = "i"
 			drawTitleBar(s)
+		}else if ev.Key() == tcell.KeyDown {
+			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+		}else if ev.Key() == tcell.KeyUp {
+			moveCursor(MOVE_UP, keepAnchor, 1, edit)
+		}else if ev.Key() == tcell.KeyLeft {
+			if control_held {
+				moveCursor(WORD_LEFT, keepAnchor, 1, edit)
+			}else {
+				moveCursor(MOVE_LEFT, keepAnchor, 1, edit)
+			}
+		}else if ev.Key() == tcell.KeyRight {
+			if control_held {
+				moveCursor(WORD_RIGHT, keepAnchor, 1, edit)
+			}else {
+				moveCursor(MOVE_RIGHT, keepAnchor, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
-			deleteText(BACKSPACE, 1, edit)
+			if control_held {
+				deleteText(BACKSPACE_WORD, 1, edit)
+			}else{
+				deleteText(BACKSPACE, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyDelete {
-			deleteText(DELETE, 1, edit)
+			if control_held {
+				deleteText(DELETE_WORD, 1, edit)
+			}else{
+				deleteText(DELETE, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyEnter {
 			insertText(edit, "\n")
 		}else if rune == '\t' {
@@ -502,9 +580,33 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			edit.current_mode = "n"
 			drawTitleBar(s)
 		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
-			deleteText(BACKSPACE, 1, edit)
+			if control_held {
+				deleteText(BACKSPACE_WORD, 1, edit)
+			}else{
+				deleteText(BACKSPACE, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyDelete {
-			deleteText(DELETE, 1, edit)
+			if control_held {
+				deleteText(DELETE_WORD, 1, edit)
+			}else{
+				deleteText(DELETE, 1, edit)
+			}
+		}else if ev.Key() == tcell.KeyDown {
+			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+		}else if ev.Key() == tcell.KeyUp {
+			moveCursor(MOVE_UP, keepAnchor, 1, edit)
+		}else if ev.Key() == tcell.KeyLeft {
+			if control_held {
+				moveCursor(WORD_LEFT, keepAnchor, 1, edit)
+			}else {
+				moveCursor(MOVE_LEFT, keepAnchor, 1, edit)
+			}
+		}else if ev.Key() == tcell.KeyRight {
+			if control_held {
+				moveCursor(WORD_RIGHT, keepAnchor, 1, edit)
+			}else {
+				moveCursor(MOVE_RIGHT, keepAnchor, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyEnter {
 			insertText(edit, "\n")
 		}else {
@@ -571,7 +673,7 @@ func getFalseCol(x, y int, edit *Edit) int {
 	for indx := range(line) {
 		char := line[indx]
 		
-		if char == '\t'{
+		if char == '\t' {
 			pos_col := fal_col + 4
 			if pos_col == x {
 				return indx+1
@@ -636,9 +738,74 @@ func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 				x++
 			}
 		}
+		
+		if action == WORD_LEFT {
+			if x == 0 {
+				x, y = movePointInText(x, y, MOVE_LEFT, 1, edit)
+				continue
+			}
+			
+			curline := edit.buffer[y]
+			
+			char := curline[x-1]
+			
+			strtype := getCharType(char)
+			
+			for range(x) {
+				x -= 1
+				if x == 0 {
+					break
+				}
+				
+				c := curline[x-1]
+				typ := getCharType(c)
+				
+				if (strtype == NORMAL_CHAR_TYPE) != (typ == NORMAL_CHAR_TYPE) {
+					break
+				}
+			}
+		}
+		
+		if action == WORD_RIGHT {
+			curline := edit.buffer[y]
+			if x == len(curline) {
+				x, y = movePointInText(x, y, MOVE_RIGHT, 1, edit)
+				continue
+			}
+			
+			char := curline[x]
+			
+			strtype := getCharType(char)
+			
+			for range(len(curline)-x) {
+				x += 1
+				if x == len(curline) {
+					break
+				}
+				
+				c := curline[x]
+				typ := getCharType(c)
+				
+				if (strtype == NORMAL_CHAR_TYPE) != (typ == NORMAL_CHAR_TYPE) {
+					break
+				}
+			}
+		}
 	}
 	
 	return x, y
+}
+
+func getCharType(char byte) int {
+	strype := NORMAL_CHAR_TYPE
+	chr := string(char)
+	if strings.Contains(WHITESPACE, chr) {
+		strype = WHITESPACE_CHAR_TYPE
+	}else if strings.Contains(PUNCTUATION, chr) {
+		strype = PUNCTUATION_CHAR_TYPE
+	}
+	
+	return strype
 }
 
 func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
@@ -661,12 +828,14 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 		edit.cursor.row_anchor = edit.cursor.row
 	}
 	
-	if action == MOVE_LEFT || action == MOVE_RIGHT {
+	if action == MOVE_LEFT || action == MOVE_RIGHT || action == WORD_LEFT || action == WORD_RIGHT {
 		edit.cursor.preferencial_col = nx
 	}
 }
 
 func main() {
+	err := clipboard.Init()
+	
 	s, err := tcell.NewScreen()
 	if err != nil {
 		log.Fatalf("%+v", err)
