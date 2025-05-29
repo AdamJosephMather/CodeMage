@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+//	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -39,20 +39,33 @@ var version string = "0.0.1"
 var s tcell.Screen
 var current_window string
 var file_name string
+var title string
 
 var defStyle tcell.Style
 var invertedStyle tcell.Style
+var titleStyle tcell.Style
+var highlightStyle tcell.Style
+var lineNumberStyle tcell.Style
 
-var textedit Edit
+var MAIN_TEXTEDIT Edit
 
 var MOVE_DOWN = 1
 var MOVE_UP = 2
 var MOVE_LEFT = 3
 var MOVE_RIGHT = 4
 
+var BACKSPACE = 5
+var DELETE = 6
+
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
 		s.SetContent(x+i, y, r, nil, style)
+	}
+}
+
+func emitStrColored(s tcell.Screen, x, y int, style []tcell.Style, str string) {
+	for i, r := range []rune(str) {
+		s.SetContent(x+i, y, r, nil, style[i])
 	}
 }
 
@@ -61,10 +74,10 @@ func mouseButtonsToString(buttons tcell.ButtonMask) string {
 	if buttons&tcell.Button1 != 0 {
 		s = append(s, "Left")
 	}
-	if buttons&tcell.Button2 != 0 {
+	if buttons&tcell.Button3 != 0 {
 		s = append(s, "Middle")
 	}
-	if buttons&tcell.Button3 != 0 {
+	if buttons&tcell.Button2 != 0 {
 		s = append(s, "Right")
 	}
 	if buttons&tcell.Button4 != 0 { // Often scroll up
@@ -88,14 +101,31 @@ func mouseButtonsToString(buttons tcell.ButtonMask) string {
 func createNew(s tcell.Screen) {
 	width, height := s.Size()
 	
+	title = "Untitled"
+	file_name = ""
+	
 	buffer := make([]string, 1)
 	
 	cursor := Cursor{row: 0, col: 0, row_anchor: 0, col_anchor: 0}
 	buffer[0] = ""
 	
-	textedit = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
+	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
 	
 	redrawFullScreen(s)
+}
+
+func repeatSlice[T any](s T, n int) []T {
+	if n <= 0 {
+		return []T{} // Return an empty slice if n is zero or negative
+	}
+
+	repeated := make([]T, n) // Pre-allocate capacity for efficiency
+	
+	for i := range(n) {
+		repeated[i] = s
+	}
+	
+	return repeated
 }
 
 func drawEdit(s tcell.Screen, edit Edit) {
@@ -115,8 +145,12 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		
 		line_num := edit.toprow+yraw // 0 based
 		
-		if line_num >= len(buffer) {
-			emitStr(s, edit.col, y, defStyle, strings.Repeat(" ", line_num_width-1)+"~")
+		if line_num >= len(buffer) && edit.use_line_numbers{
+			emitStr(s, edit.col, y, lineNumberStyle, strings.Repeat(" ", line_num_width-1)+"~"+strings.Repeat(" ", edit.width-line_num_width))
+			emitStr(s, edit.col+line_num_width, y, defStyle, strings.Repeat(" ", edit.width-line_num_width))
+			continue
+		}else if line_num >= len(buffer){
+			emitStr(s, edit.col, y, defStyle, strings.Repeat(" ", edit.width))
 			continue
 		}
 		
@@ -139,9 +173,44 @@ func drawEdit(s tcell.Screen, edit Edit) {
 				fullstr = line_rel_str+strings.Repeat(" ", num_spaces)
 			}
 			
-			emitStr(s, edit.col, y, defStyle, fullstr)
+			emitStr(s, edit.col, y, lineNumberStyle, fullstr)
 		}
 		
+		
+		// detect if it's in the cursor selection range
+		
+		minRng := -1
+		maxRng := -1
+		
+		if cursor.col != cursor.col_anchor || cursor.row != cursor.row_anchor {
+			// it is a worry here (cursor is selecting something)
+			end_row := cursor.row
+			end_col := cursor.col
+			start_row := cursor.row_anchor
+			start_col := cursor.col_anchor
+				
+			if end_row < start_row {
+				start_row, end_row = end_row, start_row
+				start_col, end_col = end_col, start_col
+			}else if end_row == start_row && start_col > end_col {
+				end_col, start_col = start_col, end_col
+			}
+			
+			if line_num > start_row && line_num < end_row {
+				minRng = -1
+				maxRng = len(edit.buffer[line_num])+1
+			}else if line_num == start_row && line_num == end_row {
+				minRng = start_col-1
+				maxRng = end_col
+			}else if line_num == start_row {
+				minRng = start_col-1
+				maxRng = len(edit.buffer[line_num])+1
+			}else if line_num == end_row {
+				minRng = -1
+				maxRng = end_col
+			}
+		}
+				
 		lineToDraw := ""
 		
 		runes := []rune(buffer[line_num])
@@ -150,17 +219,26 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		curs_line := cursor_pos == line_num
 		curs_char := cursor.col
 		
-		curs_x := -1
+		styles := []tcell.Style{}
 		
 		for true {
 			charIndx := edit.leftchar + xraw
 			
-			if curs_line && charIndx == curs_char {
-				curs_x = xraw
-			}
+			is_cursor := curs_line && charIndx == curs_char
+			is_in_highlight := charIndx > minRng && charIndx < maxRng
 			
+			cur_style := defStyle
+			
+			if is_cursor {
+				cur_style = invertedStyle
+			}else if is_in_highlight {
+				cur_style = highlightStyle
+			}
+						
 			if charIndx >= len(runes) {
 				lineToDraw += strings.Repeat(" ", edit.width-len(lineToDraw))
+				styles = append(styles, cur_style)
+				styles = append(styles, repeatSlice(defStyle, edit.width-len(styles))...)
 				break
 			}
 			
@@ -168,11 +246,15 @@ func drawEdit(s tcell.Screen, edit Edit) {
 			
 			if char != '\t'{
 				lineToDraw += string(char)
+				styles = append(styles, cur_style)
 			}else{
 				for range(4) {
 					lineToDraw += " "
+					styles = append(styles, defStyle)
 					if len(lineToDraw) == edit.width {break}
+					
 				}
+				styles[len(styles)-1] = cur_style
 			}
 			
 			xraw ++
@@ -184,19 +266,34 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		
 		x := edit.col+line_num_width
 		
-		if curs_x != -1 {
-			emitStr(s, x, y, defStyle, lineToDraw[:curs_x])
-			emitStr(s, x+curs_x+1, y, defStyle, lineToDraw[curs_x+1:])
-			emitStr(s, x+curs_x, y, invertedStyle, string(lineToDraw[curs_x]))
-			
+		if len(styles) != len(lineToDraw) {
+			emitStr(s, x, y, defStyle, "Len no matchy "+strconv.Itoa(len(styles)))
 		}else{
-			emitStr(s, x, y, defStyle, lineToDraw)
+			emitStrColored(s, x, y, styles, lineToDraw)
 		}
 	}
 }
 
 func drawFullEdit(s tcell.Screen) {
-	drawEdit(s, textedit)
+	drawEdit(s, MAIN_TEXTEDIT)
+	drawTitleBar(s)
+}
+
+func drawTitleBar(s tcell.Screen) {
+	w, _ := s.Size()
+	
+	text := "CodeMage V"+version+" - "+title
+	text += strings.Repeat(" ", w-len(text))
+	emitStr(s, 0, 0, titleStyle, text)
+	
+	
+	text = "ERROR IN MAKING THE TITLEBAR?"
+	if MAIN_TEXTEDIT.current_mode == "n" {
+		text = "NORMAL"
+	}else if MAIN_TEXTEDIT.current_mode == "i" {
+		text = "INSERT"
+	}
+	emitStr(s, w-len(text), 0, titleStyle, text)
 }
 
 func redrawFullScreen(s tcell.Screen) {
@@ -216,8 +313,8 @@ func redrawFullScreen(s tcell.Screen) {
 			emitStr(s, startX, startY, defStyle, line)
 		}
 	}else if current_window == "edit" {
-		textedit.width = width
-		textedit.height = height-1
+		MAIN_TEXTEDIT.width = width
+		MAIN_TEXTEDIT.height = height-1
 		
 		drawFullEdit(s)
 	}
@@ -225,41 +322,295 @@ func redrawFullScreen(s tcell.Screen) {
 	s.Show()
 }
 
+func ContainsString(slice []string, str string) bool {
+	for _, v := range slice {
+		if v == str {
+			return true // Found the string
+		}
+	}
+	return false // String not found in the slice
+}
+
+func deleteText(mode, repeat int, edit *Edit) {
+	if edit.cursor.row != edit.cursor.row_anchor || edit.cursor.col != edit.cursor.col_anchor {
+		// find the bottom of the selection, calculate the number of characters to delete, call delete with said repeat, exit.
+		cursor := edit.cursor
+		
+		end_row := cursor.row
+		end_col := cursor.col
+		start_row := cursor.row_anchor
+		start_col := cursor.col_anchor
+			
+		if end_row < start_row {
+			start_row, end_row = end_row, start_row
+			start_col, end_col = end_col, start_col
+		}else if end_row == start_row && end_col < start_col {
+			start_col, end_col = end_col, start_col
+		}
+		
+		if start_row == end_row {
+			line := edit.buffer[start_row]
+			
+			start := line[:start_col]
+			end := line[end_col:]
+			
+			edit.buffer[start_row] = start + end // delete section
+		}else{
+			first_line := edit.buffer[start_row][:start_col]
+			last_line := edit.buffer[end_row][end_col:]
+			edit.buffer[start_row] = first_line + last_line
+			
+			edit.buffer = append(edit.buffer[:start_row+1], edit.buffer[end_row+1:]...)
+		}
+		
+		edit.cursor.row = start_row
+		edit.cursor.col = start_col
+		edit.cursor.row_anchor = start_row
+		edit.cursor.col_anchor = start_col
+		
+		return
+	}
+	
+	for range(repeat){
+		if mode == BACKSPACE {
+			line := edit.buffer[edit.cursor.row]
+			after_deleted := ""
+			
+			if edit.cursor.col < len(line){
+				after_deleted = line[edit.cursor.col:]
+			}
+			before_deleted := ""
+			if edit.cursor.col > 0{
+				before_deleted = line[:edit.cursor.col-1]
+			}
+			
+			if edit.cursor.col == 0 && edit.cursor.row != 0 {
+				edit.cursor.row--
+				
+				joining_line := edit.buffer[edit.cursor.row]
+				
+				edit.cursor.col = len(joining_line)
+				
+				edit.buffer[edit.cursor.row] += after_deleted
+				edit.buffer = append(edit.buffer[:edit.cursor.row+1], edit.buffer[edit.cursor.row+2:]...)
+			}else{
+				moveCursor(MOVE_LEFT, false, 1, edit)
+				edit.buffer[edit.cursor.row] = before_deleted+after_deleted
+			}
+		}
+	}
+}
+
+func insertText(edit *Edit, text string) {
+	if edit.cursor.row != edit.cursor.row_anchor || edit.cursor.col != edit.cursor.col_anchor {
+		deleteText(BACKSPACE, 1, edit) // clear selection
+	}
+	
+	lines := strings.Split(text, "\n")
+	
+	first_len := len(lines[0])
+	end_len := len(lines[len(lines)-1])
+	
+	current_line := edit.buffer[edit.cursor.row]
+	bfrCrs := current_line[:edit.cursor.col]
+	endCrs := current_line[edit.cursor.col:]
+	
+	lines[0] = bfrCrs + lines[0]
+	lines[len(lines)-1] = lines[len(lines)-1] + endCrs
+	
+	edit.buffer[edit.cursor.row] = lines[0]
+	
+	end_line := edit.cursor.row
+	end_char := edit.cursor.col + first_len
+	
+	buffer := edit.buffer
+	
+	if len(lines) > 1 {
+		insertionIndex := edit.cursor.row+1
+		
+		start := append([]string(nil), buffer[:insertionIndex]...) // ensure copy not reference
+		end := buffer[insertionIndex:]
+		
+		newSlice := append(start, lines[1:]...)
+		newSlice = append(newSlice, end...)
+		
+		edit.buffer = newSlice
+		
+		end_line = edit.cursor.row + len(lines)-1
+		end_char = end_len
+	}
+	
+	edit.cursor.row = end_line
+	edit.cursor.col = end_char
+	edit.cursor.row_anchor = end_line
+	edit.cursor.col_anchor = end_char
+}
+
 func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 	rawrune := ev.Rune()
 	
 	rune := unicode.ToLower(rawrune)
-	keepAnchor := false
 	
-	if rune != rawrune {
-		keepAnchor = true
+	
+	if edit.current_mode == "n" {
+		keepAnchor := false
+		
+		if ev.Modifiers() & tcell.ModShift != 0{
+			keepAnchor = true
+		}
+		
+		if ev.Key() == tcell.KeyEnter{
+			insertText(edit, "\n")
+		}else if rune == 'j' {
+			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+		}else if rune == 'k' {
+			moveCursor(MOVE_UP, keepAnchor, 1, edit)
+		}else if rune == 'h' {
+			moveCursor(MOVE_LEFT, keepAnchor, 1, edit)
+		}else if rune == 'l' {
+			moveCursor(MOVE_RIGHT, keepAnchor, 1, edit)
+		}else if rune == 'i' {
+			edit.current_mode = "i"
+			drawTitleBar(s)
+		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
+			deleteText(BACKSPACE, 1, edit)
+		}
+	}else if edit.current_mode == "i"{
+		if ev.Key() == tcell.KeyEscape {
+			edit.current_mode = "n"
+			drawTitleBar(s)
+		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
+			deleteText(BACKSPACE, 1, edit)
+		}else if ev.Key() == tcell.KeyEnter {
+			insertText(edit, "\n")
+		}else {
+			insertText(edit, string(rawrune))
+		}
 	}
 	
-	if ev.Key() == tcell.KeyEnter{
-		line := edit.cursor.row+1
-		edit.buffer = append(edit.buffer[:line], append([]string{""}, edit.buffer[line:]...)...)
-		moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+	real_col := getTrueCol(edit.cursor.col, edit.cursor.row, edit)
+	real_row := edit.cursor.row
+	
+	showing_row_start := edit.toprow-1
+	showing_row_end := edit.toprow+edit.height-1
+	
+	showing_col_start := edit.leftchar
+	sub := 0
+	if edit.use_line_numbers {
+		sub = len(strconv.Itoa(len(edit.buffer)))
 	}
 	
-	if rune == 'j' {
-		moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
-	}else if rune == 'k' {
-		moveCursor(MOVE_UP, keepAnchor, 1, edit)
-	}else {
-		edit.buffer[edit.cursor.row] += ev.Name()
+	showing_col_end := edit.leftchar+edit.width-sub-1 // minus 1 because cursor can be on the very end of the line.
+	
+	if real_col < showing_col_start {
+		edit.leftchar = real_col
+	}else if real_col >= showing_col_end {
+		edit.leftchar += real_col-showing_col_end
+	}
+	
+	if real_row <= showing_row_start {
+		edit.toprow = real_row
+	}else if real_row >= showing_row_end {
+		edit.toprow += real_row-showing_row_end
 	}
 }
 
 func handleKey(s tcell.Screen, ev *tcell.EventKey){ // called in edit mode
-	editHandleKey(s, ev, &textedit)
+	editHandleKey(s, ev, &MAIN_TEXTEDIT)
 }
 
-func movePointInText(x, y, action, repeat int, textedit *Edit) (int, int) {
+func getTrueCol(x, y int, edit *Edit) int {
+	tru_col := 0
+	line := edit.buffer[y]
+	
+	for indx := range(x){
+		char := line[indx]
+		
+		if char != '\t' {
+			tru_col ++
+		} else {
+			tru_col += 4
+		}
+	}
+	
+	return tru_col
+}
+
+func getFalseCol(x, y int, edit *Edit) int {
+	fal_col := 0
+	line := edit.buffer[y]
+	
+	if x == 0 {
+		return 0
+	}
+	
+	for indx := range(line) {
+		char := line[indx]
+		
+		if char == '\t'{
+			pos_col := fal_col + 4
+			if pos_col == x {
+				return indx+1
+			}else if pos_col < x {
+				fal_col = pos_col
+				continue
+			} else { // we are around it. fal_col < x < pos_col
+				if x-fal_col < pos_col-x {
+					return indx
+				}else{
+					return indx+1
+				}
+			}
+		}else {
+			fal_col ++
+			if fal_col == x {
+				return indx+1
+			}
+		}
+	}
+	
+	return len(line)
+}
+
+func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 	for range(repeat){
-		if action == MOVE_DOWN && y < len(textedit.buffer)-1 {
-			y ++
-		}else if action == MOVE_UP && y > 0 {
-			y --
+		if action == MOVE_DOWN || action == MOVE_UP {
+			tru_col := getTrueCol(x, y, edit)
+			
+			changed := false
+			if action == MOVE_DOWN && y < len(edit.buffer)-1 {
+				y ++
+				changed = true
+			}else if action == MOVE_UP && y > 0 {
+				y --
+				changed = true
+			}
+			
+			if changed {
+				x = getFalseCol(tru_col, y, edit)
+			}
+		}
+		
+		if action == MOVE_LEFT {
+			if x == 0 {
+				if y != 0 {
+					y --
+					x = len(edit.buffer[y])
+				}
+			}else{
+				x--
+			}
+		}
+		
+		if action == MOVE_RIGHT {
+			if x == len(edit.buffer[y]) {
+				if y != len(edit.buffer)-1 {
+					y ++
+					x = 0
+				}
+			}else{
+				x++
+			}
 		}
 	}
 	
@@ -273,10 +624,8 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	edit.cursor.row = ny
 	
 	if !keepAnchor {
-		x, y := edit.cursor.col_anchor, edit.cursor.row_anchor
-		nx, ny := movePointInText(x, y, action, repeat, edit)
-		edit.cursor.col_anchor = nx
-		edit.cursor.row_anchor = ny
+		edit.cursor.col_anchor = edit.cursor.col
+		edit.cursor.row_anchor = edit.cursor.row
 	}
 }
 
@@ -293,8 +642,16 @@ func main() {
 	
 	s.EnableMouse()
 	
+	titleColor := tcell.NewRGBColor(25, 25, 25)
+	highlightColor := tcell.NewRGBColor(100, 100, 100)
+	lineNumberColor := tcell.NewRGBColor(42, 42, 42)
+	
 	defStyle = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
 	invertedStyle = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
+	titleStyle = tcell.StyleDefault.Background(titleColor).Foreground(tcell.ColorWhite)
+	highlightStyle = tcell.StyleDefault.Background(highlightColor).Foreground(tcell.ColorWhite)
+	lineNumberStyle = tcell.StyleDefault.Background(lineNumberColor).Foreground(tcell.ColorWhite)
+	
 	s.SetStyle(defStyle)
 	s.Clear()
 	s.HideCursor()
@@ -308,23 +665,22 @@ func main() {
 		
 		switch ev := ev.(type) {
 		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape {
-				return
-			}
+//			if ev.Key() == tcell.KeyEscape {
+//				return
+//			}
 			
 			if current_window == "edit"{
 				handleKey(s, ev)
-				emitStr(s, 0, 0, defStyle, ev.Name())
 			}else{
 				current_window = "edit"
 				createNew(s)
 			}
 			
 			drawFullEdit(s)
-		case *tcell.EventMouse:
-			x, y := ev.Position()
-			buttons := ev.Buttons()
-			emitStr(s, 0, 0, defStyle, fmt.Sprintf("(%d, %d) - %s", x, y, mouseButtonsToString(buttons)))
+//		case *tcell.EventMouse:
+//			x, y := ev.Position()
+//			buttons := ev.Buttons()
+//			emitStr(s, 0, 0, defStyle, fmt.Sprintf("(%d, %d) - %s", x, y, mouseButtonsToString(buttons)))
 		
 		case *tcell.EventResize:
 			redrawFullScreen(s)
