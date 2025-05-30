@@ -966,6 +966,30 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	}
 }
 
+func handleMouse(s tcell.Screen, ev *tcell.EventMouse) {
+	buttons := ev.Buttons()
+//	x, y := ev.Position()
+	
+	if buttons&tcell.WheelUp != 0 {
+		MAIN_TEXTEDIT.toprow -= 4
+		if MAIN_TEXTEDIT.toprow < 0 {
+			MAIN_TEXTEDIT.toprow = 0
+		}
+	}
+	if buttons&tcell.WheelDown != 0 {
+		MAIN_TEXTEDIT.toprow += 4
+		if MAIN_TEXTEDIT.toprow > len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height {
+			MAIN_TEXTEDIT.toprow = len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height
+		}
+	}
+//	if buttons&tcell.WheelLeft != 0 {
+//		logMessage(s, fmt.Sprintf("Mouse Wheel Left at %d,%d", x, y))
+//	}
+//	if buttons&tcell.WheelRight != 0 {
+//		logMessage(s, fmt.Sprintf("Mouse Wheel Right at %d,%d", x, y))
+//	}
+}
+
 func main() {
 	err := clipboard.Init()
 	
@@ -1031,11 +1055,9 @@ func main() {
 			}
 			
 			drawFullEdit(s)
-//		case *tcell.EventMouse:
-//			x, y := ev.Position()
-//			buttons := ev.Buttons()
-//			emitStr(s, 0, 0, defStyle, fmt.Sprintf("(%d, %d) - %s", x, y, mouseButtonsToString(buttons)))
-		
+		case *tcell.EventMouse:
+			handleMouse(s, ev)
+			drawFullEdit(s)
 		case *tcell.EventResize:
 			redrawFullScreen(s)
 		
