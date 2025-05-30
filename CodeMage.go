@@ -58,7 +58,7 @@ var TITLE_STYLE tcell.Style
 var HIGHLIGHT_STYLE tcell.Style
 var LINE_NUMBER_STYLE tcell.Style
 var STRING_STYLE tcell.Style
-var UNKNOWN_STYLE tcell.Style
+var NORMAL_MODE_STYLE tcell.Style
 var FUNCTION_STYLE tcell.Style
 var KEYWORD_STYLE tcell.Style
 var NAME_STYLE tcell.Style
@@ -69,6 +69,7 @@ var LITTERAL_STYLE tcell.Style
 var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null"}
 
 var MAIN_TEXTEDIT Edit
+var BUTTON_DOWN bool
 
 var MOVE_DOWN = 1
 var MOVE_UP = 2
@@ -360,8 +361,10 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 				cur_style = exist_styles[charIndx]
 			}
 			
-			if is_cursor {
+			if is_cursor && MAIN_TEXTEDIT.current_mode == "i" {
 				cur_style = INVERTED_STYLE
+			}else if is_cursor && MAIN_TEXTEDIT.current_mode == "n" {
+				cur_style = NORMAL_MODE_STYLE
 			}else if is_in_highlight {
 				cur_style = HIGHLIGHT_STYLE
 			}
@@ -968,7 +971,11 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 
 func handleMouse(s tcell.Screen, ev *tcell.EventMouse) {
 	buttons := ev.Buttons()
-//	x, y := ev.Position()
+	x, y := ev.Position()
+	
+	if buttons&tcell.Button1 == 0 {
+		BUTTON_DOWN = false
+	}
 	
 	if buttons&tcell.WheelUp != 0 {
 		MAIN_TEXTEDIT.toprow -= 4
@@ -982,12 +989,29 @@ func handleMouse(s tcell.Screen, ev *tcell.EventMouse) {
 			MAIN_TEXTEDIT.toprow = len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height
 		}
 	}
-//	if buttons&tcell.WheelLeft != 0 {
-//		logMessage(s, fmt.Sprintf("Mouse Wheel Left at %d,%d", x, y))
-//	}
-//	if buttons&tcell.WheelRight != 0 {
-//		logMessage(s, fmt.Sprintf("Mouse Wheel Right at %d,%d", x, y))
-//	}
+	
+	if buttons&tcell.Button1 != 0 {
+		row := MAIN_TEXTEDIT.toprow+y-MAIN_TEXTEDIT.row
+		if row >= len(MAIN_TEXTEDIT.buffer) {
+			row = len(MAIN_TEXTEDIT.buffer)-1
+		}else if row < 0 {
+			row = 0
+		}
+		
+		col := getFalseCol(x-len(strconv.Itoa(len(MAIN_TEXTEDIT.buffer))), row, &MAIN_TEXTEDIT)
+		
+		if !BUTTON_DOWN {
+			MAIN_TEXTEDIT.cursor.col = col
+			MAIN_TEXTEDIT.cursor.row = row
+			MAIN_TEXTEDIT.cursor.col_anchor = col
+			MAIN_TEXTEDIT.cursor.row_anchor = row
+		}else{
+			MAIN_TEXTEDIT.cursor.col = col
+			MAIN_TEXTEDIT.cursor.row = row
+		}
+		
+		BUTTON_DOWN = true
+	}
 }
 
 func main() {
@@ -1022,7 +1046,7 @@ func main() {
 	HIGHLIGHT_STYLE = tcell.StyleDefault.Background(highlightColor).Foreground(tcell.ColorWhite)
 	LINE_NUMBER_STYLE = tcell.StyleDefault.Background(lineNumberColor).Foreground(tcell.ColorWhite)
 	STRING_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(stringColor)
-	UNKNOWN_STYLE = tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorBlack)
+	NORMAL_MODE_STYLE = tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorBlack)
 	FUNCTION_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorFUNCTION)
 	KEYWORD_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorKEYWORD)
 	NAME_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorNAME)
@@ -1056,7 +1080,13 @@ func main() {
 			
 			drawFullEdit(s)
 		case *tcell.EventMouse:
-			handleMouse(s, ev)
+			if current_window == "edit" {
+				handleMouse(s, ev)
+			}else {
+				current_window = "edit"
+				createNew(s)
+			}
+			
 			drawFullEdit(s)
 		case *tcell.EventResize:
 			redrawFullScreen(s)
