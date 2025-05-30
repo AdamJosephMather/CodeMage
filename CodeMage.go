@@ -2,27 +2,21 @@ package main
 
 import (
 	"log"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 	"golang.design/x/clipboard"
 )
 
-type BuffInfo struct {
-	ends_string bool
-	string_type rune
-	
-	indent_level int
-	add_indent bool
-}
-
 type Line struct {
 	text string
 	changed bool
 	styles []tcell.Style
+	start_str bool
+	start_str_type rune
 	end_str bool
 	end_str_type rune
 }
@@ -58,11 +52,21 @@ var current_window string
 var file_name string
 var title string
 
-var defStyle tcell.Style
-var invertedStyle tcell.Style
-var titleStyle tcell.Style
-var highlightStyle tcell.Style
-var lineNumberStyle tcell.Style
+var DEF_STYLE tcell.Style
+var INVERTED_STYLE tcell.Style
+var TITLE_STYLE tcell.Style
+var HIGHLIGHT_STYLE tcell.Style
+var LINE_NUMBER_STYLE tcell.Style
+var STRING_STYLE tcell.Style
+var UNKNOWN_STYLE tcell.Style
+var FUNCTION_STYLE tcell.Style
+var KEYWORD_STYLE tcell.Style
+var NAME_STYLE tcell.Style
+var PUNC_STYLE tcell.Style
+var COMMENT_STYLE tcell.Style
+var LITTERAL_STYLE tcell.Style
+
+var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null"}
 
 var MAIN_TEXTEDIT Edit
 
@@ -77,7 +81,8 @@ var BACKSPACE = 5
 var DELETE = 6
 
 var WHITESPACE = " \t"
-var PUNCTUATION = "./>,<-_=+[]{}|\\)(*&^%$#@!`~:;'\"?"
+var PUNCTUATION = "./>,<-=+[]{}|\\)(*&^%$#@!`~:;'\"?"
+var NUMBERS = "0123456789"
 
 var NORMAL_CHAR_TYPE = 9
 var WHITESPACE_CHAR_TYPE = 10
@@ -98,35 +103,6 @@ func emitStrColored(s tcell.Screen, x, y int, style []tcell.Style, str string) {
 	}
 }
 
-func mouseButtonsToString(buttons tcell.ButtonMask) string {
-	var s []string
-	if buttons&tcell.Button1 != 0 {
-		s = append(s, "Left")
-	}
-	if buttons&tcell.Button3 != 0 {
-		s = append(s, "Middle")
-	}
-	if buttons&tcell.Button2 != 0 {
-		s = append(s, "Right")
-	}
-	if buttons&tcell.Button4 != 0 { // Often scroll up
-		s = append(s, "ScrollUp")
-	}
-	if buttons&tcell.Button5 != 0 { // Often scroll down
-		s = append(s, "ScrollDown")
-	}
-	if buttons&tcell.ButtonPrimary != 0 {
-		s = append(s, "Primary")
-	}
-	if buttons&tcell.ButtonSecondary != 0 {
-		s = append(s, "Secondary")
-	}
-	if buttons&tcell.ButtonNone != 0 && len(s) == 0 { // No buttons pressed (e.g., mouse movement)
-		s = append(s, "None")
-	}
-	return strings.Join(s, ", ")
-}
-
 func createNew(s tcell.Screen) {
 	width, height := s.Size()
 	
@@ -145,10 +121,121 @@ func createNew(s tcell.Screen) {
 	redrawFullScreen(s)
 }
 
-func bufferEdited(edit *Edit) {
-	// Find edited sections (old_buffer)
-	// Recalc styles
-	// Save old_buffer
+func checkForStyleUpdates(edit *Edit) {
+	for indx, line := range(edit.buffer) {
+		var preline Line
+		
+		if indx > 0 {
+			preline = edit.buffer[indx-1]
+		}else{
+			preline = Line{}
+		}
+		
+		if !line.changed && line.start_str == preline.end_str && line.start_str_type == preline.end_str_type {
+			continue
+		}
+		
+		line.styles = []tcell.Style{}
+		line.changed = false
+		line.start_str = preline.end_str
+		line.start_str_type = preline.end_str_type
+		
+		cur_str := line.start_str
+		cur_str_type := line.start_str_type
+		is_real := true
+		in_comment := false
+		prechar := ' '
+		was_name := false
+		start_of_name := 0
+		name := ""
+		
+		was_literal := false
+		
+		for indx_c, char := range(line.text) {
+			is_name := false
+			is_literal := false
+			
+			if in_comment {
+				line.styles = append(line.styles, COMMENT_STYLE)
+			}else if cur_str {
+				line.styles = append(line.styles, STRING_STYLE)
+				
+				if char == cur_str_type && is_real {
+					cur_str = false
+				}
+				
+				if char == '\\'{
+					is_real = !is_real
+				}else{
+					is_real = true
+				}
+				
+			}else if char == '"' || char == '\'' {
+				cur_str = true
+				is_real = true
+				line.styles = append(line.styles, STRING_STYLE)
+				cur_str_type = char
+			}else if strings.Contains(PUNCTUATION, string(char)) && !(char == '.' && was_literal) {
+				if char == '#' { // python comment
+					in_comment = true
+					line.styles = append(line.styles, COMMENT_STYLE)
+				}else if char == '/' && prechar == '/'{ // any other lang - this will f*** w/ python // sign...
+					in_comment = true
+					line.styles[len(line.styles)-1] = COMMENT_STYLE // retroactively change the last char
+					line.styles = append(line.styles, COMMENT_STYLE)
+				}else{
+					line.styles = append(line.styles, PUNC_STYLE)
+				}
+				is_real = true
+			}else if strings.Contains(WHITESPACE, string(char)) {
+				line.styles = append(line.styles, DEF_STYLE)
+				
+				is_real = true
+			}else if (strings.Contains(NUMBERS, string(char)) && !was_name) || char == '.' && was_literal {
+				if !was_literal {
+					was_literal = true
+				}
+				is_literal = true
+				line.styles = append(line.styles, LITTERAL_STYLE)
+				is_real = true
+			}else { // part of id (name)
+				line.styles = append(line.styles, NAME_STYLE)
+				is_real = true
+				
+				if !was_name{
+					start_of_name = indx_c
+					was_name = true
+					name = ""
+				}
+				
+				name += string(char)
+				
+				is_name = true
+			}
+			
+			if !is_name && was_name {
+				if char == '(' {
+					for rep := range(len(line.styles)-start_of_name-1) {
+						line.styles[rep+start_of_name] = FUNCTION_STYLE
+					}
+				}else if slices.Contains(KEYWORDS, name) {
+					for rep := range(len(line.styles)-start_of_name-1) {
+						line.styles[rep+start_of_name] = KEYWORD_STYLE
+					}
+				}
+				was_name = false
+			}
+			
+			was_literal = is_literal
+			
+			prechar = char
+		}
+		
+		line.end_str = cur_str
+		line.end_str_type = cur_str_type
+		
+		edit.buffer[indx] = line
+	}
 }
 
 func repeatSlice[T any](s T, n int) []T {
@@ -165,7 +252,9 @@ func repeatSlice[T any](s T, n int) []T {
 	return repeated
 }
 
-func drawEdit(s tcell.Screen, edit Edit) {
+func drawEdit(s tcell.Screen, edit *Edit) {
+	checkForStyleUpdates(edit)
+	
 	buffer := edit.buffer
 	cursor := edit.cursor
 	
@@ -183,11 +272,11 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		line_num := edit.toprow+yraw // 0 based
 		
 		if line_num >= len(buffer) && edit.use_line_numbers{
-			emitStr(s, edit.col, y, lineNumberStyle, strings.Repeat(" ", line_num_width-1)+"~"+strings.Repeat(" ", edit.width-line_num_width))
-			emitStr(s, edit.col+line_num_width, y, defStyle, strings.Repeat(" ", edit.width-line_num_width))
+			emitStr(s, edit.col, y, LINE_NUMBER_STYLE, strings.Repeat(" ", line_num_width-1)+"~"+strings.Repeat(" ", edit.width-line_num_width))
+			emitStr(s, edit.col+line_num_width, y, DEF_STYLE, strings.Repeat(" ", edit.width-line_num_width))
 			continue
 		}else if line_num >= len(buffer){
-			emitStr(s, edit.col, y, defStyle, strings.Repeat(" ", edit.width))
+			emitStr(s, edit.col, y, DEF_STYLE, strings.Repeat(" ", edit.width))
 			continue
 		}
 		
@@ -210,7 +299,7 @@ func drawEdit(s tcell.Screen, edit Edit) {
 				fullstr = line_rel_str+strings.Repeat(" ", num_spaces)
 			}
 			
-			emitStr(s, edit.col, y, lineNumberStyle, fullstr)
+			emitStr(s, edit.col, y, LINE_NUMBER_STYLE, fullstr)
 		}
 		
 		
@@ -252,6 +341,9 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		tru_col_current := 0
 		
 		runes := []rune(buffer[line_num].text)
+		exist_styles := buffer[line_num].styles
+		exist_styles_len := len(exist_styles)
+		
 		charIndx := 0
 		
 		curs_line := cursor_pos == line_num
@@ -263,18 +355,21 @@ func drawEdit(s tcell.Screen, edit Edit) {
 			is_cursor := curs_line && charIndx == curs_char
 			is_in_highlight := charIndx > minRng && charIndx < maxRng
 			
-			cur_style := defStyle
+			cur_style := DEF_STYLE
+			if charIndx < exist_styles_len {
+				cur_style = exist_styles[charIndx]
+			}
 			
 			if is_cursor {
-				cur_style = invertedStyle
+				cur_style = INVERTED_STYLE
 			}else if is_in_highlight {
-				cur_style = highlightStyle
+				cur_style = HIGHLIGHT_STYLE
 			}
 						
 			if charIndx >= len(runes) {
 				lineToDraw += strings.Repeat(" ", edit.width-len(lineToDraw))
 				styles = append(styles, cur_style)
-				styles = append(styles, repeatSlice(defStyle, edit.width-len(styles))...)
+				styles = append(styles, repeatSlice(DEF_STYLE, edit.width-len(styles))...)
 				break
 			}
 			
@@ -293,9 +388,9 @@ func drawEdit(s tcell.Screen, edit Edit) {
 						if tab_indx == 0 {
 							styles = append(styles, cur_style)
 						}else if is_in_highlight {
-							styles = append(styles, highlightStyle)
+							styles = append(styles, HIGHLIGHT_STYLE)
 						}else{
-							styles = append(styles, defStyle)
+							styles = append(styles, DEF_STYLE)
 						}
 					}
 					tru_col_current ++
@@ -317,7 +412,7 @@ func drawEdit(s tcell.Screen, edit Edit) {
 }
 
 func drawFullEdit(s tcell.Screen) {
-	drawEdit(s, MAIN_TEXTEDIT)
+	drawEdit(s, &MAIN_TEXTEDIT)
 	drawTitleBar(s)
 }
 
@@ -326,7 +421,7 @@ func drawTitleBar(s tcell.Screen) {
 	
 	text := "CodeMage V"+version+" - "+title
 	text += strings.Repeat(" ", w-len(text))
-	emitStr(s, 0, 0, titleStyle, text)
+	emitStr(s, 0, 0, TITLE_STYLE, text)
 	
 	
 	text = "ERROR IN MAKING THE TITLEBAR?"
@@ -335,7 +430,7 @@ func drawTitleBar(s tcell.Screen) {
 	}else if MAIN_TEXTEDIT.current_mode == "i" {
 		text = "INSERT"
 	}
-	emitStr(s, w-len(text), 0, titleStyle, text)
+	emitStr(s, w-len(text), 0, TITLE_STYLE, text)
 }
 
 func redrawFullScreen(s tcell.Screen) {
@@ -352,7 +447,7 @@ func redrawFullScreen(s tcell.Screen) {
 			startX := (width-linelen)/2
 			startY := (height/2)+i
 			
-			emitStr(s, startX, startY, defStyle, line)
+			emitStr(s, startX, startY, DEF_STYLE, line)
 		}
 	}else if current_window == "edit" {
 		MAIN_TEXTEDIT.width = width
@@ -889,14 +984,29 @@ func main() {
 	titleColor := tcell.NewRGBColor(25, 25, 25)
 	highlightColor := tcell.NewRGBColor(100, 100, 100)
 	lineNumberColor := tcell.NewRGBColor(50, 50, 50)
+	stringColor := tcell.NewRGBColor(127, 173, 94)
+	colorFUNCTION := tcell.NewRGBColor(199, 157, 78)
+	colorKEYWORD := tcell.NewRGBColor(176, 95, 199)
+	colorNAME := tcell.NewRGBColor(245, 91, 102)
+	colorPUNC := tcell.NewRGBColor(127, 132, 142)
+	colorCOMMENT := tcell.NewRGBColor(127, 132, 142)
+	colorLITTERAL := tcell.NewRGBColor(194, 127, 64)
 	
-	defStyle = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
-	invertedStyle = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
-	titleStyle = tcell.StyleDefault.Background(titleColor).Foreground(tcell.ColorWhite)
-	highlightStyle = tcell.StyleDefault.Background(highlightColor).Foreground(tcell.ColorWhite)
-	lineNumberStyle = tcell.StyleDefault.Background(lineNumberColor).Foreground(tcell.ColorWhite)
+	DEF_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
+	INVERTED_STYLE = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
+	TITLE_STYLE = tcell.StyleDefault.Background(titleColor).Foreground(tcell.ColorWhite)
+	HIGHLIGHT_STYLE = tcell.StyleDefault.Background(highlightColor).Foreground(tcell.ColorWhite)
+	LINE_NUMBER_STYLE = tcell.StyleDefault.Background(lineNumberColor).Foreground(tcell.ColorWhite)
+	STRING_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(stringColor)
+	UNKNOWN_STYLE = tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorBlack)
+	FUNCTION_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorFUNCTION)
+	KEYWORD_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorKEYWORD)
+	NAME_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorNAME)
+	PUNC_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorPUNC)
+	COMMENT_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorCOMMENT)
+	LITTERAL_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorLITTERAL)
 	
-	s.SetStyle(defStyle)
+	s.SetStyle(DEF_STYLE)
 	s.Clear()
 	s.HideCursor()
 	
@@ -933,6 +1043,5 @@ func main() {
 			// You can choose to log or ignore other event types
 		}
 		s.Show()
-		time.Sleep(10 * time.Millisecond)
 	}
 }
