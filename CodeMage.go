@@ -36,6 +36,7 @@ type Edit struct {
 	use_line_numbers bool
 	
 	current_mode string
+	number_string string
 	
 	UNDO_HISTORY []Snapshot
 	REDO_HISTORY []Snapshot
@@ -77,7 +78,7 @@ var PUNC_STYLE tcell.Style
 var COMMENT_STYLE tcell.Style
 var LITTERAL_STYLE tcell.Style
 
-var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null"}
+var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null", "try", "catch", "except", "default"}
 
 var MAIN_TEXTEDIT Edit
 var BUTTON_DOWN bool
@@ -131,7 +132,7 @@ func createNew(s tcell.Screen) {
 	buffer[0] = Line{text: "", end_str: false}
 	old_buffer[0] = ""
 	
-	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
+	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i", number_string: ""}
 	
 	readyUndoHistory(&MAIN_TEXTEDIT)
 	
@@ -248,6 +249,14 @@ func checkForStyleUpdates(edit *Edit) {
 			was_literal = is_literal
 			
 			prechar = char
+		}
+		
+		if was_name {
+			if slices.Contains(KEYWORDS, name) {
+				for rep := range(len(line.styles)-start_of_name) {
+					line.styles[rep+start_of_name] = KEYWORD_STYLE
+				}
+			}
 		}
 		
 		line.end_str = cur_str
@@ -702,35 +711,52 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		return false // only can return here because it is not going to change the undo/redo history
 	}
 	
+	repeatCount := 1
+	if len(edit.number_string) > 0 {
+		vl, err := strconv.Atoi(edit.number_string)
+		if err == nil && repeatCount != 0{
+			repeatCount = vl
+		}
+		
+	}
+	
 	if edit.current_mode == "n" {
+		if strings.Contains(NUMBERS, string(rune)) {
+			edit.number_string += string(rune)
+		}else {
+			edit.number_string = ""
+		}
+		
 		if ev.Key() == tcell.KeyEnter{
 			insertNewLine(edit)
 		}else if rune == 'j' {
-			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+			moveCursor(MOVE_DOWN, keepAnchor, repeatCount, edit)
 		}else if rune == 'k' {
-			moveCursor(MOVE_UP, keepAnchor, 1, edit)
+			moveCursor(MOVE_UP, keepAnchor, repeatCount, edit)
 		}else if rune == 'h' {
-			moveCursor(MOVE_LEFT, keepAnchor, 1, edit)
+			moveCursor(MOVE_LEFT, keepAnchor, repeatCount, edit)
 		}else if rune == 'l' {
-			moveCursor(MOVE_RIGHT, keepAnchor, 1, edit)
+			moveCursor(MOVE_RIGHT, keepAnchor, repeatCount, edit)
 		}else if rune == 'e' {
-			moveCursor(WORD_RIGHT, keepAnchor, 1, edit)
+			moveCursor(WORD_RIGHT, keepAnchor, repeatCount, edit)
 		}else if rune == 'w' {
-			moveCursor(WORD_LEFT, keepAnchor, 1, edit)
+			moveCursor(WORD_LEFT, keepAnchor, repeatCount, edit)
 		}else if ev.Key() == tcell.KeyCtrlA {
 			edit.cursor.row_anchor = 0
 			edit.cursor.col_anchor = 0
 			moveCursor(FULL_END, true, 1, edit)
 		}else if rune == 'a' {
 			moveCursor(END_OF_LINE, keepAnchor, 1, edit)
-			MAIN_TEXTEDIT.current_mode = "i"
+			edit.current_mode = "i"
+			edit.number_string = ""
 			drawTitleBar(s)
 		}else if rune == '^' {
 			moveCursor(START_OF_LINE, false, 1, edit)
 		}else if rune == 'o' {
 			moveCursor(END_OF_LINE, false, 1, edit)
 			insertNewLine(edit)
-			MAIN_TEXTEDIT.current_mode = "i"
+			edit.current_mode = "i"
+			edit.number_string = ""
 			drawTitleBar(s)
 		}else if rune == 'v' {
 			text := clipboard.Read(clipboard.FmtText)
@@ -744,6 +770,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 			deleteText(BACKSPACE, 1, edit)
 		}else if rune == 'i' {
 			edit.current_mode = "i"
+			edit.number_string = ""
 			drawTitleBar(s)
 		}else if ev.Key() == tcell.KeyDown {
 			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
@@ -781,6 +808,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	}else if edit.current_mode == "i"{
 		if ev.Key() == tcell.KeyEscape {
 			edit.current_mode = "n"
+			edit.number_string = ""
 			drawTitleBar(s)
 		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
 			if control_held {
@@ -1282,9 +1310,8 @@ func main() {
 				if handleMouse(s, ev) {
 					return
 				}
+				drawFullEdit(s)
 			}
-			
-			drawFullEdit(s)
 		case *tcell.EventResize:
 			redrawFullScreen(s)
 		
