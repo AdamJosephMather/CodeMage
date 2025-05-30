@@ -19,16 +19,21 @@ type BuffInfo struct {
 	add_indent bool
 }
 
+type Line struct {
+	text string
+	changed bool
+	styles []tcell.Style
+	end_str bool
+	end_str_type rune
+}
+
 type Edit struct {
 	row int
 	col int
 	width int
 	height int
 	
-	buffer []string
-	old_buffer []string
-	styles_buff []tcell.Style
-	buffer_info []BuffInfo
+	buffer []Line
 	
 	toprow int
 	leftchar int
@@ -128,16 +133,14 @@ func createNew(s tcell.Screen) {
 	title = "Untitled"
 	file_name = ""
 	
-	buffer := make([]string, 1)
+	buffer := make([]Line, 1)
 	old_buffer := make([]string, 1)
-	style_buff := []tcell.Style{}
-	buffer_info := make([]BuffInfo, 1)
 	
 	cursor := Cursor{row: 0, col: 0, row_anchor: 0, col_anchor: 0}
-	buffer[0] = ""
+	buffer[0] = Line{text: "", end_str: false}
 	old_buffer[0] = ""
 	
-	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, old_buffer: old_buffer, styles_buff: style_buff, buffer_info: buffer_info, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
+	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
 	
 	redrawFullScreen(s)
 }
@@ -232,13 +235,13 @@ func drawEdit(s tcell.Screen, edit Edit) {
 			
 			if line_num > start_row && line_num < end_row {
 				minRng = -1
-				maxRng = len(edit.buffer[line_num])+1
+				maxRng = len(edit.buffer[line_num].text)+1
 			}else if line_num == start_row && line_num == end_row {
 				minRng = start_col-1
 				maxRng = end_col
 			}else if line_num == start_row {
 				minRng = start_col-1
-				maxRng = len(edit.buffer[line_num])+1
+				maxRng = len(edit.buffer[line_num].text)+1
 			}else if line_num == end_row {
 				minRng = -1
 				maxRng = end_col
@@ -248,7 +251,7 @@ func drawEdit(s tcell.Screen, edit Edit) {
 		lineToDraw := ""
 		tru_col_current := 0
 		
-		runes := []rune(buffer[line_num])
+		runes := []rune(buffer[line_num].text)
 		charIndx := 0
 		
 		curs_line := cursor_pos == line_num
@@ -390,14 +393,16 @@ func deleteText(mode, repeat int, edit *Edit) {
 		if start_row == end_row {
 			line := edit.buffer[start_row]
 			
-			start := line[:start_col]
-			end := line[end_col:]
+			start := line.text[:start_col]
+			end := line.text[end_col:]
 			
-			edit.buffer[start_row] = start + end // delete section
+			edit.buffer[start_row].text = start + end // delete section
+			edit.buffer[start_row].changed = true // delete section
 		}else{
-			first_line := edit.buffer[start_row][:start_col]
-			last_line := edit.buffer[end_row][end_col:]
-			edit.buffer[start_row] = first_line + last_line
+			first_line := edit.buffer[start_row].text[:start_col]
+			last_line := edit.buffer[end_row].text[end_col:]
+			edit.buffer[start_row].text = first_line + last_line
+			edit.buffer[start_row].changed = true
 			
 			edit.buffer = append(edit.buffer[:start_row+1], edit.buffer[end_row+1:]...)
 		}
@@ -413,7 +418,7 @@ func deleteText(mode, repeat int, edit *Edit) {
 	
 	for range(repeat){
 		if mode == BACKSPACE {
-			line := edit.buffer[edit.cursor.row]
+			line := edit.buffer[edit.cursor.row].text
 			after_deleted := ""
 			
 			if edit.cursor.col < len(line){
@@ -427,16 +432,18 @@ func deleteText(mode, repeat int, edit *Edit) {
 			if edit.cursor.col == 0 && edit.cursor.row != 0 {
 				edit.cursor.row--
 				
-				joining_line := edit.buffer[edit.cursor.row]
+				joining_line := edit.buffer[edit.cursor.row].text
 				
 				edit.cursor.col = len(joining_line)
 				
 				
-				edit.buffer[edit.cursor.row] += after_deleted
+				edit.buffer[edit.cursor.row].text += after_deleted
+				edit.buffer[edit.cursor.row].changed = true
 				edit.buffer = append(edit.buffer[:edit.cursor.row+1], edit.buffer[edit.cursor.row+2:]...)
 			}else{
 				moveCursor(MOVE_LEFT, false, 1, edit)
-				edit.buffer[edit.cursor.row] = before_deleted+after_deleted
+				edit.buffer[edit.cursor.row].text = before_deleted+after_deleted
+				edit.buffer[edit.cursor.row].changed = true
 			}
 			
 			edit.cursor.row_anchor = edit.cursor.row
@@ -460,19 +467,25 @@ func insertText(edit *Edit, text string) {
 		deleteText(BACKSPACE, 1, edit) // clear selection
 	}
 	
-	lines := strings.Split(text, "\n")
+	lines_strings := strings.Split(text, "\n")
 	
-	first_len := len(lines[0])
-	end_len := len(lines[len(lines)-1])
+	lines := []Line{}
+	for _, str := range(lines_strings) {
+		lines = append(lines, Line{text: str, changed: true})
+	}
 	
-	current_line := edit.buffer[edit.cursor.row]
+	first_len := len(lines[0].text)
+	end_len := len(lines[len(lines)-1].text)
+	
+	current_line := edit.buffer[edit.cursor.row].text
 	bfrCrs := current_line[:edit.cursor.col]
 	endCrs := current_line[edit.cursor.col:]
 	
-	lines[0] = bfrCrs + lines[0]
-	lines[len(lines)-1] = lines[len(lines)-1] + endCrs
+	lines[0].text = bfrCrs + lines[0].text
+	lines[len(lines)-1].text = lines[len(lines)-1].text + endCrs
 	
-	edit.buffer[edit.cursor.row] = lines[0]
+	edit.buffer[edit.cursor.row].text = lines[0].text
+	edit.buffer[edit.cursor.row].changed = true
 	
 	end_line := edit.cursor.row
 	end_char := edit.cursor.col + first_len
@@ -482,7 +495,7 @@ func insertText(edit *Edit, text string) {
 	if len(lines) > 1 {
 		insertionIndex := edit.cursor.row+1
 		
-		start := append([]string(nil), buffer[:insertionIndex]...) // ensure copy not reference
+		start := append([]Line(nil), buffer[:insertionIndex]...) // ensure copy not reference
 		end := buffer[insertionIndex:]
 		
 		newSlice := append(start, lines[1:]...)
@@ -517,12 +530,17 @@ func getCursorSelection(edit *Edit) string {
 	}
 	
 	if s_r == e_r {
-		return edit.buffer[s_r][s_c:e_c]
+		return edit.buffer[s_r].text[s_c:e_c]
 	}else{
-		lines := append([]string(nil), edit.buffer[s_r:e_r+1]...)
-		lines[0] = lines[0][s_c:]
-		lines[len(lines)-1] = lines[len(lines)-1][:e_c]
-		return strings.Join(lines, "\n")
+		lines := append([]Line(nil), edit.buffer[s_r:e_r+1]...)
+		lines[0].text = lines[0].text[s_c:]
+		lines[len(lines)-1].text = lines[len(lines)-1].text[:e_c]
+		
+		line_str := []string{}
+		for _, ln := range(lines) {
+			line_str = append(line_str, ln.text)
+		}
+		return strings.Join(line_str, "\n")
 	}
 }
 
@@ -670,7 +688,7 @@ func getTrueCol(x, y int, edit *Edit) int {
 	line := edit.buffer[y]
 	
 	for indx := range(x){
-		char := line[indx]
+		char := line.text[indx]
 		
 		if char != '\t' {
 			tru_col ++
@@ -684,7 +702,7 @@ func getTrueCol(x, y int, edit *Edit) int {
 
 func getFalseCol(x, y int, edit *Edit) int {
 	fal_col := 0
-	line := edit.buffer[y]
+	line := edit.buffer[y].text
 	
 	if x == 0 {
 		return 0
@@ -741,7 +759,7 @@ func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 			if x == 0 {
 				if y != 0 {
 					y --
-					x = len(edit.buffer[y])
+					x = len(edit.buffer[y].text)
 				}
 			}else{
 				x--
@@ -749,7 +767,7 @@ func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 		}
 		
 		if action == MOVE_RIGHT {
-			if x == len(edit.buffer[y]) {
+			if x == len(edit.buffer[y].text) {
 				if y != len(edit.buffer)-1 {
 					y ++
 					x = 0
@@ -765,7 +783,7 @@ func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 				continue
 			}
 			
-			curline := edit.buffer[y]
+			curline := edit.buffer[y].text
 			
 			char := curline[x-1]
 			
@@ -787,7 +805,7 @@ func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 		}
 		
 		if action == WORD_RIGHT {
-			curline := edit.buffer[y]
+			curline := edit.buffer[y].text
 			if x == len(curline) {
 				x, y = movePointInText(x, y, MOVE_RIGHT, 1, edit)
 				continue
@@ -835,8 +853,8 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	
 	if action == MOVE_DOWN || action == MOVE_UP {
 		nx = getFalseCol(edit.cursor.preferencial_col, ny, edit)
-		if nx > len(edit.buffer[ny]) {
-			nx = len(edit.buffer[ny])
+		if nx > len(edit.buffer[ny].text) {
+			nx = len(edit.buffer[ny].text)
 		}
 	}
 	
