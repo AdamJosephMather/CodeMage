@@ -135,6 +135,8 @@ func createNew(s tcell.Screen) {
 	
 	readyUndoHistory(&MAIN_TEXTEDIT)
 	
+	MAIN_TEXTEDIT.UNDO_HISTORY[0].time_taken = 0 // ensuring it stays as independant event
+	
 	redrawFullScreen(s)
 }
 
@@ -692,11 +694,11 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		return true
 	}
 	
-	if ev.Key() == tcell.KeyCtrlZ {
-		undo(edit)
-		return false // only can return here because it is not going to change the undo/redo history
-	}else if ev.Key() == tcell.KeyCtrlY {
+	if ev.Key() == tcell.KeyCtrlY {
 		redo(edit)
+		return false // only can return here because it is not going to change the undo/redo history
+	}else if ev.Key() == tcell.KeyCtrlZ {
+		undo(edit)
 		return false // only can return here because it is not going to change the undo/redo history
 	}
 	
@@ -879,22 +881,38 @@ func applyEditState(state Snapshot, edit *Edit) {
 }
 
 func undo(edit *Edit) {
+	curText := getPlainText(edit)
+	
 	if len(edit.UNDO_HISTORY) > 0 {
 		last_edit := edit.UNDO_HISTORY[len(edit.UNDO_HISTORY)-1]
 		edit.UNDO_HISTORY = edit.UNDO_HISTORY[:len(edit.UNDO_HISTORY)-1]
+		edit.REDO_HISTORY = append(edit.REDO_HISTORY, last_edit)
+		
+		if last_edit.fulltext == curText && len(edit.UNDO_HISTORY) > 0 {
+			last_edit = edit.UNDO_HISTORY[len(edit.UNDO_HISTORY)-1]
+			edit.UNDO_HISTORY = edit.UNDO_HISTORY[:len(edit.UNDO_HISTORY)-1]
+			edit.REDO_HISTORY = append(edit.REDO_HISTORY, last_edit)
+		}
 		
 		applyEditState(last_edit, edit)
-		edit.REDO_HISTORY = append(edit.REDO_HISTORY, last_edit)
 	}
 }
 
 func redo(edit *Edit) {
+	curText := getPlainText(edit)
+	
 	if len(edit.REDO_HISTORY) > 0 {
 		last_edit := edit.REDO_HISTORY[len(edit.REDO_HISTORY)-1]
 		edit.REDO_HISTORY = edit.REDO_HISTORY[:len(edit.REDO_HISTORY)-1]
+		edit.UNDO_HISTORY = append(edit.UNDO_HISTORY, last_edit)
+		
+		if last_edit.fulltext == curText && len(edit.REDO_HISTORY) > 0 {
+			last_edit = edit.REDO_HISTORY[len(edit.REDO_HISTORY)-1]
+			edit.REDO_HISTORY = edit.REDO_HISTORY[:len(edit.REDO_HISTORY)-1]
+			edit.UNDO_HISTORY = append(edit.UNDO_HISTORY, last_edit)
+		}
 		
 		applyEditState(last_edit, edit)
-		edit.UNDO_HISTORY = append(edit.UNDO_HISTORY, last_edit)
 	}
 }
 
