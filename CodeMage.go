@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
@@ -35,6 +36,9 @@ type Edit struct {
 	use_line_numbers bool
 	
 	current_mode string
+	
+	UNDO_HISTORY []Snapshot
+	REDO_HISTORY []Snapshot
 }
 
 type Cursor struct {
@@ -43,6 +47,13 @@ type Cursor struct {
 	row_anchor int
 	col_anchor int
 	preferencial_col int
+}
+
+type Snapshot struct {
+	buffer []Line
+	cursor Cursor
+	time_taken int64
+	fulltext string
 }
 
 var version string = "0.0.1"
@@ -121,6 +132,8 @@ func createNew(s tcell.Screen) {
 	old_buffer[0] = ""
 	
 	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i"}
+	
+	readyUndoHistory(&MAIN_TEXTEDIT)
 	
 	redrawFullScreen(s)
 }
@@ -679,6 +692,14 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		return true
 	}
 	
+	if ev.Key() == tcell.KeyCtrlZ {
+		undo(edit)
+		return false
+	}else if ev.Key() == tcell.KeyCtrlY {
+		redo(edit)
+		return false
+	}
+	
 	if edit.current_mode == "n" {
 		if ev.Key() == tcell.KeyEnter{
 			insertNewLine(edit)
@@ -828,7 +849,98 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		edit.toprow += real_row-showing_row_end
 	}
 	
+	readyUndoHistory(edit)
+	
 	return false
+}
+
+func copyBuffer(buffer []Line) []Line {
+	copied := make([]Line, len(buffer))
+	for i, line := range buffer {
+		copied[i].text = line.text
+		copied[i].changed = line.changed
+		copied[i].styles = append([]tcell.Style{}, line.styles...)
+		copied[i].end_str = line.end_str
+		copied[i].end_str_type = line.end_str_type
+		copied[i].start_str = line.end_str
+		copied[i].start_str_type = line.end_str_type
+	}
+	return copied
+}
+
+func applyEditState(state Snapshot, edit *Edit) {
+	edit.cursor.row = state.cursor.row
+	edit.cursor.row_anchor = state.cursor.row_anchor
+	edit.cursor.col = state.cursor.col_anchor
+	edit.cursor.col_anchor = state.cursor.col_anchor
+	edit.cursor.preferencial_col = state.cursor.preferencial_col
+	
+	edit.buffer = copyBuffer(state.buffer)
+}
+
+func undo(edit *Edit) {
+	if len(edit.UNDO_HISTORY) > 0 {
+		last_edit := edit.UNDO_HISTORY[len(edit.UNDO_HISTORY)-1]
+		edit.UNDO_HISTORY = edit.UNDO_HISTORY[:len(edit.UNDO_HISTORY)-1]
+		
+		applyEditState(last_edit, edit)
+		edit.REDO_HISTORY = append(edit.REDO_HISTORY, last_edit)
+	}
+}
+
+func redo(edit *Edit) {
+	if len(edit.REDO_HISTORY) > 0 {
+		last_edit := edit.REDO_HISTORY[len(edit.REDO_HISTORY)-1]
+		edit.REDO_HISTORY = edit.REDO_HISTORY[:len(edit.REDO_HISTORY)-1]
+		
+		applyEditState(last_edit, edit)
+		edit.REDO_HISTORY = append(edit.UNDO_HISTORY, last_edit)
+	}
+}
+
+func getPlainText(edit *Edit) string {
+	out := make([]string, len(edit.buffer))
+	
+	for indx, line := range(edit.buffer){
+		out[indx] = line.text
+	}
+	
+	return strings.Join(out, "\n")
+}
+
+func readyUndoHistory(edit *Edit) {
+	cur_time_millis := time.Now().UnixNano() / 1e6
+	
+	overwrite := false
+	
+	cur_string := getPlainText(edit)
+	
+	if len(edit.UNDO_HISTORY) > 0 {
+		last_snap := edit.UNDO_HISTORY[len(edit.UNDO_HISTORY)-1]
+		if last_snap.fulltext == cur_string {
+			return
+		}
+		
+		tm := last_snap.time_taken
+		
+		if cur_time_millis-tm < 300 {
+			overwrite = true
+		}
+	}
+	
+	copied := copyBuffer(edit.buffer)
+	
+	cop_cursor := Cursor{row: edit.cursor.row, col: edit.cursor.col, row_anchor: edit.cursor.row_anchor, col_anchor: edit.cursor.col_anchor, preferencial_col: edit.cursor.preferencial_col}
+	
+	this_snap := Snapshot{buffer: copied, cursor: cop_cursor, time_taken: cur_time_millis, fulltext: cur_string}
+	
+	if overwrite {
+		edit.UNDO_HISTORY[len(edit.UNDO_HISTORY)-1] = this_snap
+	}else{
+		edit.UNDO_HISTORY = append(edit.UNDO_HISTORY, this_snap)
+	}
+	
+	edit.REDO_HISTORY = []Snapshot{}
 }
 
 func handleKey(s tcell.Screen, ev *tcell.EventKey) bool { // called in edit mode
