@@ -91,6 +91,8 @@ var PUNCTUATION_CHAR_TYPE = 11
 
 var BACKSPACE_WORD = 12
 var DELETE_WORD = 13
+var END_OF_LINE = 14
+var START_OF_LINE = 15
 
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
@@ -368,7 +370,7 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 			}else if is_in_highlight {
 				cur_style = HIGHLIGHT_STYLE
 			}
-						
+			
 			if charIndx >= len(runes) {
 				lineToDraw += strings.Repeat(" ", edit.width-len(lineToDraw))
 				styles = append(styles, cur_style)
@@ -642,6 +644,28 @@ func getCursorSelection(edit *Edit) string {
 	}
 }
 
+func insertNewLine(edit *Edit) {
+	curLine := edit.buffer[edit.cursor.row].text
+	
+	tabs := ""
+	for _, char := range(curLine){
+		if char == '\t' {
+			tabs += "\t"
+		}else {
+			break
+		}
+	}
+	
+	if len(curLine) != 0{
+		lastchar := curLine[len(curLine)-1]
+		if lastchar == ':' || lastchar == '(' || lastchar == '[' || lastchar == '{' {
+			tabs += "\t"
+		}
+	}
+	
+	insertText(edit, "\n"+tabs)
+}
+
 func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 	rawrune := ev.Rune()
 	
@@ -652,7 +676,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 	
 	if edit.current_mode == "n" {
 		if ev.Key() == tcell.KeyEnter{
-			insertText(edit, "\n")
+			insertNewLine(edit)
 		}else if rune == 'j' {
 			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
 		}else if rune == 'k' {
@@ -665,6 +689,17 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			moveCursor(WORD_RIGHT, keepAnchor, 1, edit)
 		}else if rune == 'w' {
 			moveCursor(WORD_LEFT, keepAnchor, 1, edit)
+		}else if rune == 'a' {
+			moveCursor(END_OF_LINE, keepAnchor, 1, edit)
+			MAIN_TEXTEDIT.current_mode = "i"
+			drawTitleBar(s)
+		}else if rune == '^' {
+			moveCursor(START_OF_LINE, false, 1, edit)
+		}else if rune == 'o' {
+			moveCursor(END_OF_LINE, false, 1, edit)
+			insertNewLine(edit)
+			MAIN_TEXTEDIT.current_mode = "i"
+			drawTitleBar(s)
 		}else if rune == 'v' {
 			text := clipboard.Read(clipboard.FmtText)
 			insertText(edit, string(text))
@@ -743,8 +778,12 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			}else {
 				moveCursor(MOVE_RIGHT, keepAnchor, 1, edit)
 			}
+		}else if ev.Key() == tcell.KeyEnd {
+			moveCursor(END_OF_LINE, keepAnchor, 1, edit)
+		}else if ev.Key() == tcell.KeyHome {
+			moveCursor(START_OF_LINE, false, 1, edit)
 		}else if ev.Key() == tcell.KeyEnter {
-			insertText(edit, "\n")
+			insertNewLine(edit)
 		}else {
 			insertText(edit, string(rawrune))
 		}
@@ -835,6 +874,12 @@ func getFalseCol(x, y int, edit *Edit) int {
 }
 
 func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
+	if action == END_OF_LINE {
+		x = len(edit.buffer[y].text)
+	}else if action == START_OF_LINE {
+		x = 0
+	}
+	
 	for range(repeat){
 		if action == MOVE_DOWN || action == MOVE_UP {
 			tru_col := getTrueCol(x, y, edit)
@@ -1071,20 +1116,18 @@ func main() {
 //				return
 //			}
 			
-			if current_window == "edit"{
-				handleKey(s, ev)
-			}else{
+			if current_window != "edit"{
 				current_window = "edit"
 				createNew(s)
 			}
+			
+			handleKey(s, ev)
+			
 			
 			drawFullEdit(s)
 		case *tcell.EventMouse:
 			if current_window == "edit" {
 				handleMouse(s, ev)
-			}else {
-				current_window = "edit"
-				createNew(s)
 			}
 			
 			drawFullEdit(s)
