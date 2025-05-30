@@ -694,10 +694,10 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	
 	if ev.Key() == tcell.KeyCtrlZ {
 		undo(edit)
-		return false
+		return false // only can return here because it is not going to change the undo/redo history
 	}else if ev.Key() == tcell.KeyCtrlY {
 		redo(edit)
-		return false
+		return false // only can return here because it is not going to change the undo/redo history
 	}
 	
 	if edit.current_mode == "n" {
@@ -871,7 +871,7 @@ func copyBuffer(buffer []Line) []Line {
 func applyEditState(state Snapshot, edit *Edit) {
 	edit.cursor.row = state.cursor.row
 	edit.cursor.row_anchor = state.cursor.row_anchor
-	edit.cursor.col = state.cursor.col_anchor
+	edit.cursor.col = state.cursor.col
 	edit.cursor.col_anchor = state.cursor.col_anchor
 	edit.cursor.preferencial_col = state.cursor.preferencial_col
 	
@@ -894,7 +894,7 @@ func redo(edit *Edit) {
 		edit.REDO_HISTORY = edit.REDO_HISTORY[:len(edit.REDO_HISTORY)-1]
 		
 		applyEditState(last_edit, edit)
-		edit.REDO_HISTORY = append(edit.UNDO_HISTORY, last_edit)
+		edit.UNDO_HISTORY = append(edit.UNDO_HISTORY, last_edit)
 	}
 }
 
