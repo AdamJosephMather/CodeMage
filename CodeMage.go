@@ -93,6 +93,7 @@ var BACKSPACE_WORD = 12
 var DELETE_WORD = 13
 var END_OF_LINE = 14
 var START_OF_LINE = 15
+var FULL_END = 16
 
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
@@ -666,13 +667,17 @@ func insertNewLine(edit *Edit) {
 	insertText(edit, "\n"+tabs)
 }
 
-func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
+func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	rawrune := ev.Rune()
 	
 	rune := unicode.ToLower(rawrune)
 	
 	control_held := ev.Modifiers()&tcell.ModCtrl != 0
 	keepAnchor   := ev.Modifiers()&tcell.ModShift != 0
+	
+	if ev.Key() == tcell.KeyCtrlQ {
+		return true
+	}
 	
 	if edit.current_mode == "n" {
 		if ev.Key() == tcell.KeyEnter{
@@ -689,6 +694,10 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			moveCursor(WORD_RIGHT, keepAnchor, 1, edit)
 		}else if rune == 'w' {
 			moveCursor(WORD_LEFT, keepAnchor, 1, edit)
+		}else if ev.Key() == tcell.KeyCtrlA {
+			edit.cursor.row_anchor = 0
+			edit.cursor.col_anchor = 0
+			moveCursor(FULL_END, true, 1, edit)
 		}else if rune == 'a' {
 			moveCursor(END_OF_LINE, keepAnchor, 1, edit)
 			MAIN_TEXTEDIT.current_mode = "i"
@@ -784,6 +793,10 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 			moveCursor(START_OF_LINE, false, 1, edit)
 		}else if ev.Key() == tcell.KeyEnter {
 			insertNewLine(edit)
+		}else if ev.Key() == tcell.KeyCtrlA {
+			edit.cursor.row_anchor = 0
+			edit.cursor.col_anchor = 0
+			moveCursor(FULL_END, true, 1, edit)
 		}else {
 			insertText(edit, string(rawrune))
 		}
@@ -814,10 +827,12 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) {
 	}else if real_row >= showing_row_end {
 		edit.toprow += real_row-showing_row_end
 	}
+	
+	return false
 }
 
-func handleKey(s tcell.Screen, ev *tcell.EventKey){ // called in edit mode
-	editHandleKey(s, ev, &MAIN_TEXTEDIT)
+func handleKey(s tcell.Screen, ev *tcell.EventKey) bool { // called in edit mode
+	return editHandleKey(s, ev, &MAIN_TEXTEDIT)
 }
 
 func getTrueCol(x, y int, edit *Edit) int {
@@ -878,6 +893,9 @@ func movePointInText(x, y, action, repeat int, edit *Edit) (int, int) {
 		x = len(edit.buffer[y].text)
 	}else if action == START_OF_LINE {
 		x = 0
+	}else if action == FULL_END {
+		y = len(edit.buffer)-1
+		x = len(edit.buffer[y].text)
 	}
 	
 	for range(repeat){
@@ -1014,7 +1032,7 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	}
 }
 
-func handleMouse(s tcell.Screen, ev *tcell.EventMouse) {
+func handleMouse(s tcell.Screen, ev *tcell.EventMouse) bool {
 	buttons := ev.Buttons()
 	x, y := ev.Position()
 	
@@ -1057,6 +1075,8 @@ func handleMouse(s tcell.Screen, ev *tcell.EventMouse) {
 		
 		BUTTON_DOWN = true
 	}
+	
+	return false
 }
 
 func main() {
@@ -1121,13 +1141,17 @@ func main() {
 				createNew(s)
 			}
 			
-			handleKey(s, ev)
+			if handleKey(s, ev) { // exit condition
+				return
+			}
 			
 			
 			drawFullEdit(s)
 		case *tcell.EventMouse:
 			if current_window == "edit" {
-				handleMouse(s, ev)
+				if handleMouse(s, ev) {
+					return
+				}
 			}
 			
 			drawFullEdit(s)
