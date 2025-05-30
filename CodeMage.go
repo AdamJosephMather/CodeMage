@@ -587,7 +587,7 @@ func insertText(edit *Edit, text string) {
 	
 	lines := []Line{}
 	for _, str := range(lines_strings) {
-		lines = append(lines, Line{text: str, changed: true})
+		lines = append(lines, Line{text: strings.ReplaceAll(str, "\r", ""), changed: true})
 	}
 	
 	first_len := len(lines[0].text)
