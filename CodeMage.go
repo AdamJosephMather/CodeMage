@@ -486,6 +486,10 @@ func drawYesNo(s tcell.Screen) {
 		s1, s2 = s2, s1
 	}
 	
+	for line := range INPT_TEXTEDIT.height {
+		emitStr(s, INPT_TEXTEDIT.col, INPT_TEXTEDIT.row+line, DEF_STYLE, strings.Repeat(" ", INPT_TEXTEDIT.width))
+	}
+	
 	emitStr(s, INPT_TEXTEDIT.col+2, INPT_TEXTEDIT.row+1, s1, "Yes")
 	emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width-4, INPT_TEXTEDIT.row+1, s2, "No")
 }
