@@ -159,8 +159,8 @@ func setupUI(s tcell.Screen) {
 	
 	INPT_TEXTEDIT = createEdit(s)
 	INPT_TEXTEDIT.width = 30
-	INPT_TEXTEDIT.height = 1
-	INPT_TEXTEDIT.row = height/2
+	INPT_TEXTEDIT.height = 3
+	INPT_TEXTEDIT.row = height/2-1
 	INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
 	INPT_TEXTEDIT.use_line_numbers = false
 	
@@ -485,17 +485,17 @@ func drawYesNo(s tcell.Screen) {
 		s1, s2 = s2, s1
 	}
 	
-	emitStr(s, INPT_TEXTEDIT.col+1, INPT_TEXTEDIT.row, s1, "Yes")
-	emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width-3, INPT_TEXTEDIT.row, s2, "No")
+	emitStr(s, INPT_TEXTEDIT.col+2, INPT_TEXTEDIT.row+1, s1, "Yes")
+	emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width-4, INPT_TEXTEDIT.row+1, s2, "No")
 }
 
 func drawOutline(s tcell.Screen, edit *Edit, style tcell.Style, text string) {
-	emitStr(s, edit.col-1, edit.row-1, style, text+strings.Repeat(" ", edit.width+2-len(text)))
-	emitStr(s, edit.col-1, edit.row+1, style, strings.Repeat(" ", edit.width+2))
+	emitStr(s, edit.col-2, edit.row-1, style, text+strings.Repeat(" ", edit.width+4-len(text)))
+	emitStr(s, edit.col-2, edit.row+edit.height, style, strings.Repeat(" ", edit.width+4))
 	
 	for row := range edit.height {
-		emitStr(s, edit.col-1, edit.row+row, style, " ")
-		emitStr(s, edit.col+edit.width, edit.row+row, style, " ")
+		emitStr(s, edit.col-2, edit.row+row, style, "  ")
+		emitStr(s, edit.col+edit.width, edit.row+row, style, "  ")
 	}
 }
 
@@ -550,8 +550,8 @@ func redrawFullScreen(s tcell.Screen) {
 		MAIN_TEXTEDIT.height = height-1
 		
 		INPT_TEXTEDIT.width = 30
-		INPT_TEXTEDIT.height = 1
-		INPT_TEXTEDIT.row = height/2
+		INPT_TEXTEDIT.height = 3
+		INPT_TEXTEDIT.row = height/2-1
 		INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
 		
 		drawFullEdit(s)
@@ -814,7 +814,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	}
 	
 	if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
-		if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc {
+		if ((ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc) && INPT_TEXTEDIT.current_mode == "n") {
 			INPT_TEXTEDIT.cursor.row = 0
 			INPT_TEXTEDIT.cursor.col = 0
 			INPT_TEXTEDIT.cursor.row_anchor = 0
@@ -822,7 +822,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 			INPT_TEXTEDIT.buffer = []Line{{text: ""}}
 		}
 		
-		if ev.Key() == tcell.KeyEnter || ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc {
+		if ev.Key() == tcell.KeyEnter || ((ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc) && INPT_TEXTEDIT.current_mode == "n") {
 			SHOWING_INPUT_MODAL = false
 			if INPUT_MODAL_CALLBACK != nil {
 				INPUT_MODAL_CALLBACK()
@@ -1505,7 +1505,7 @@ func displayError(errorMessage string) {
 	
 	INPUT_MODAL_LABEL = ""
 	INPUT_MODAL_CALLBACK = nil
-	INPT_TEXTEDIT.buffer = []Line{{text: strings.ReplaceAll(errorMessage, "\n", ""), changed: true}}
+	INPT_TEXTEDIT.buffer = []Line{{text: errorMessage, changed: true}}
 }
 
 func main() {
@@ -1561,20 +1561,21 @@ func main() {
 	colorPUNC := tcell.NewRGBColor(127, 132, 142)
 	colorCOMMENT := tcell.NewRGBColor(127, 132, 142)
 	colorLITTERAL := tcell.NewRGBColor(194, 127, 64)
+	colorBackground := tcell.NewRGBColor(15, 15, 15)
 	
-	DEF_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
+	DEF_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(tcell.ColorWhite)
 	INVERTED_STYLE = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
 	TITLE_STYLE = tcell.StyleDefault.Background(titleColor).Foreground(tcell.ColorWhite)
 	HIGHLIGHT_STYLE = tcell.StyleDefault.Background(highlightColor).Foreground(tcell.ColorWhite)
 	LINE_NUMBER_STYLE = tcell.StyleDefault.Background(lineNumberColor).Foreground(tcell.ColorWhite)
-	STRING_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(stringColor)
+	STRING_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(stringColor)
 	NORMAL_MODE_STYLE = tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorBlack)
-	FUNCTION_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorFUNCTION)
-	KEYWORD_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorKEYWORD)
-	NAME_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorNAME)
-	PUNC_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorPUNC)
-	COMMENT_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorCOMMENT)
-	LITTERAL_STYLE = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(colorLITTERAL)
+	FUNCTION_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorFUNCTION)
+	KEYWORD_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorKEYWORD)
+	NAME_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorNAME)
+	PUNC_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorPUNC)
+	COMMENT_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorCOMMENT)
+	LITTERAL_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorLITTERAL)
 	
 	s.SetStyle(DEF_STYLE)
 	s.Clear()
