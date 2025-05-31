@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -81,6 +85,10 @@ var LITTERAL_STYLE tcell.Style
 var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null", "try", "catch", "except", "default"}
 
 var MAIN_TEXTEDIT Edit
+var INPT_TEXTEDIT Edit
+var INPUT_MODAL_CALLBACK func()
+var SHOWING_INPUT_MODAL bool
+var INPUT_MODAL_LABEL string
 var BUTTON_DOWN bool
 
 var MOVE_DOWN = 1
@@ -119,11 +127,8 @@ func emitStrColored(s tcell.Screen, x, y int, style []tcell.Style, str string) {
 	}
 }
 
-func createNew(s tcell.Screen) {
+func createEdit(s tcell.Screen) Edit {
 	width, height := s.Size()
-	
-	title = "Untitled"
-	file_name = ""
 	
 	buffer := make([]Line, 1)
 	old_buffer := make([]string, 1)
@@ -132,13 +137,36 @@ func createNew(s tcell.Screen) {
 	buffer[0] = Line{text: "", end_str: false}
 	old_buffer[0] = ""
 	
-	MAIN_TEXTEDIT = Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i", number_string: ""}
+	edit := Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i", number_string: ""}
 	
-	readyUndoHistory(&MAIN_TEXTEDIT)
+	readyUndoHistory(&edit)
 	
-	MAIN_TEXTEDIT.UNDO_HISTORY[0].time_taken = 0 // ensuring it stays as independant event
+	edit.UNDO_HISTORY[0].time_taken = 0 // ensuring it stays as independant event
+	
+	return edit
+}
+
+func setupUI(s tcell.Screen) {
+	width, height := s.Size()
+	
+	MAIN_TEXTEDIT = createEdit(s)
+	
+	INPT_TEXTEDIT = createEdit(s)
+	INPT_TEXTEDIT.width = 20
+	INPT_TEXTEDIT.height = 1
+	INPT_TEXTEDIT.row = height/2
+	INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
+	INPT_TEXTEDIT.use_line_numbers = false
+	
+	SHOWING_INPUT_MODAL = false
 	
 	redrawFullScreen(s)
+}
+
+func createNew(s tcell.Screen) {
+	title = "Untitled"
+	file_name = ""
+	setupUI(s)
 }
 
 func checkForStyleUpdates(edit *Edit) {
@@ -388,9 +416,9 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 				cur_style = exist_styles[charIndx]
 			}
 			
-			if is_cursor && MAIN_TEXTEDIT.current_mode == "i" {
+			if is_cursor && edit.current_mode == "i" {
 				cur_style = INVERTED_STYLE
-			}else if is_cursor && MAIN_TEXTEDIT.current_mode == "n" {
+			}else if is_cursor && edit.current_mode == "n" {
 				cur_style = NORMAL_MODE_STYLE
 			}else if is_in_highlight {
 				cur_style = HIGHLIGHT_STYLE
@@ -443,6 +471,17 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 
 func drawFullEdit(s tcell.Screen) {
 	drawEdit(s, &MAIN_TEXTEDIT)
+	
+	if SHOWING_INPUT_MODAL {
+		emitStr(s, INPT_TEXTEDIT.col-1, INPT_TEXTEDIT.row-1, TITLE_STYLE, INPUT_MODAL_LABEL+strings.Repeat(" ", INPT_TEXTEDIT.width+2-len(INPUT_MODAL_LABEL)))
+		emitStr(s, INPT_TEXTEDIT.col-1, INPT_TEXTEDIT.row+1, TITLE_STYLE, strings.Repeat(" ", INPT_TEXTEDIT.width+2))
+		
+		emitStr(s, INPT_TEXTEDIT.col-1, INPT_TEXTEDIT.row, TITLE_STYLE, " ")
+		emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width, INPT_TEXTEDIT.row, TITLE_STYLE, " ")
+		
+		drawEdit(s, &INPT_TEXTEDIT)
+	}
+	
 	drawTitleBar(s)
 }
 
@@ -452,7 +491,6 @@ func drawTitleBar(s tcell.Screen) {
 	text := "CodeMage V"+version+" - "+title
 	text += strings.Repeat(" ", w-len(text))
 	emitStr(s, 0, 0, TITLE_STYLE, text)
-	
 	
 	text = "ERROR IN MAKING THE TITLEBAR?"
 	if MAIN_TEXTEDIT.current_mode == "n" {
@@ -482,6 +520,11 @@ func redrawFullScreen(s tcell.Screen) {
 	}else if current_window == "edit" {
 		MAIN_TEXTEDIT.width = width
 		MAIN_TEXTEDIT.height = height-1
+		
+		INPT_TEXTEDIT.width = 30
+		INPT_TEXTEDIT.height = 1
+		INPT_TEXTEDIT.row = height/2
+		INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
 		
 		drawFullEdit(s)
 	}
@@ -696,7 +739,8 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	
 	rune := unicode.ToLower(rawrune)
 	
-	control_held := ev.Modifiers()&tcell.ModCtrl != 0
+	control_held := ev.Modifiers()&tcell.ModCtrl  != 0
+	alt_held     := ev.Modifiers()&tcell.ModAlt   != 0
 	keepAnchor   := ev.Modifiers()&tcell.ModShift != 0
 	
 	if ev.Key() == tcell.KeyCtrlQ {
@@ -711,6 +755,17 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		undo(edit)
 		showCursor(edit)
 		return false // only can return here because it is not going to change the undo/redo history
+	}else if ev.Key() == tcell.KeyCtrlS {
+		saveFile()
+		return false
+	}else if rune == 's' && alt_held {
+		saveFileAs()
+		return false
+	}else if ev.Key() == tcell.KeyEnter {
+		if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
+			SHOWING_INPUT_MODAL = false
+			INPUT_MODAL_CALLBACK()
+		}
 	}
 	
 	repeatCount := 1
@@ -996,7 +1051,11 @@ func readyUndoHistory(edit *Edit) {
 }
 
 func handleKey(s tcell.Screen, ev *tcell.EventKey) bool { // called in edit mode
-	return editHandleKey(s, ev, &MAIN_TEXTEDIT)
+	if SHOWING_INPUT_MODAL {
+		return editHandleKey(s, ev, &INPT_TEXTEDIT)
+	}else{
+		return editHandleKey(s, ev, &MAIN_TEXTEDIT)
+	}
 }
 
 func getTrueCol(x, y int, edit *Edit) int {
@@ -1243,8 +1302,97 @@ func handleMouse(s tcell.Screen, ev *tcell.EventMouse) bool {
 	return false
 }
 
+func saveFile() {
+	if file_name == "" {
+		saveFileAs()
+	}
+	err := os.WriteFile(file_name, []byte(getPlainText(&MAIN_TEXTEDIT)), 0644)
+	if err != nil {
+		fmt.Printf("Error writing file: %v\n", err)
+		return
+	}
+}
+
+func getTextInput(text string) {
+	INPT_TEXTEDIT.buffer = []Line{Line{text: "", changed: true}} // clear old text.
+	SHOWING_INPUT_MODAL = true
+	INPUT_MODAL_LABEL = text
+}
+
+func continueSaveAs() {
+	new_name := getPlainText(&INPT_TEXTEDIT)
+	
+	if new_name == "" {
+		return
+	}
+	
+	file_name = new_name
+	adjustToFileName()
+	saveFile()
+}
+
+func saveFileAs() {
+	INPUT_MODAL_CALLBACK = continueSaveAs
+	getTextInput("File name?")
+}
+
+func adjustToFileName() {
+	cleanedPath := filepath.Clean(file_name)
+	title = filepath.Base(cleanedPath)
+}
+
+func openFile(s tcell.Screen) {
+	setupUI(s)
+	
+	file, err := os.Open(file_name)
+	if err != nil {
+		fmt.Printf("Error opening file: %v\n", err)
+		return
+	}
+	defer file.Close()
+	
+	scanner := bufio.NewScanner(file)
+	
+	for scanner.Scan() {
+		line := scanner.Text()
+		MAIN_TEXTEDIT.buffer = append(MAIN_TEXTEDIT.buffer, Line{text: line, changed: true})
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading lines: %v\n", err)
+	}
+}
+
 func main() {
+	if len(os.Args) > 1 {
+		file_name = os.Args[1]
+		cleanedPath := filepath.Clean(file_name)
+		absPath, err := filepath.Abs(cleanedPath)
+		if err != nil {
+			log.Fatalf("%+v", err)
+		}
+		
+		fileInfo, err := os.Stat(absPath)
+		if os.IsNotExist(err) {
+			fmt.Printf("File does not exist\n")
+			return
+		} else if err != nil {
+			fmt.Printf("Error checking existence: %v\n", err)
+			return
+		} else {
+			if fileInfo.IsDir() {
+				fmt.Printf("Specified file was directory.")
+				return
+			}
+		}
+
+		title = filepath.Base(cleanedPath)
+	}
+	
 	err := clipboard.Init()
+	if err != nil {
+		log.Fatalf("%+v", err)
+	}
 	
 	s, err := tcell.NewScreen()
 	if err != nil {
@@ -1287,9 +1435,13 @@ func main() {
 	s.Clear()
 	s.HideCursor()
 	
-	current_window = "blank"
-	
-	redrawFullScreen(s)
+	if file_name == ""{
+		current_window = "blank"
+		redrawFullScreen(s)
+	}else{
+		current_window = "edit"
+		openFile(s)
+	}
 	
 	for {
 		ev := s.PollEvent()
