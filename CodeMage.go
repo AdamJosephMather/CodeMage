@@ -705,9 +705,11 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	
 	if ev.Key() == tcell.KeyCtrlY {
 		redo(edit)
+		showCursor(edit)
 		return false // only can return here because it is not going to change the undo/redo history
 	}else if ev.Key() == tcell.KeyCtrlZ {
 		undo(edit)
+		showCursor(edit)
 		return false // only can return here because it is not going to change the undo/redo history
 	}
 	
@@ -853,6 +855,14 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		}
 	}
 	
+	showCursor(edit)
+	
+	readyUndoHistory(edit)
+	
+	return false
+}
+
+func showCursor(edit *Edit) {
 	real_col := getTrueCol(edit.cursor.col, edit.cursor.row, edit)
 	real_row := edit.cursor.row
 	
@@ -878,10 +888,6 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	}else if real_row >= showing_row_end {
 		edit.toprow += real_row-showing_row_end
 	}
-	
-	readyUndoHistory(edit)
-	
-	return false
 }
 
 func copyBuffer(buffer []Line) []Line {
