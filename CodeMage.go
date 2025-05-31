@@ -86,8 +86,10 @@ var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "m
 
 var MAIN_TEXTEDIT Edit
 var INPT_TEXTEDIT Edit
-var INPUT_MODAL_CALLBACK func()
+var INPUT_MODAL_CALLBACK func() = nil
 var SHOWING_INPUT_MODAL bool
+var SHOWING_INPUT_BOOL bool
+var CURRENT_SELECTED_BOOL bool
 var INPUT_MODAL_LABEL string
 var BUTTON_DOWN bool
 
@@ -114,6 +116,10 @@ var DELETE_WORD = 13
 var END_OF_LINE = 14
 var START_OF_LINE = 15
 var FULL_END = 16
+
+var LAST_SAVED string
+var NEED_TO_EXIT bool
+var SAVE_CALLBACK func() = nil
 
 func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
@@ -152,13 +158,15 @@ func setupUI(s tcell.Screen) {
 	MAIN_TEXTEDIT = createEdit(s)
 	
 	INPT_TEXTEDIT = createEdit(s)
-	INPT_TEXTEDIT.width = 20
+	INPT_TEXTEDIT.width = 30
 	INPT_TEXTEDIT.height = 1
 	INPT_TEXTEDIT.row = height/2
 	INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
 	INPT_TEXTEDIT.use_line_numbers = false
 	
 	SHOWING_INPUT_MODAL = false
+	SHOWING_INPUT_BOOL = false
+	CURRENT_SELECTED_BOOL = true
 	
 	redrawFullScreen(s)
 }
@@ -469,17 +477,37 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 	}
 }
 
+func drawYesNo(s tcell.Screen) {
+	s1 := INVERTED_STYLE
+	s2 := DEF_STYLE
+	
+	if !CURRENT_SELECTED_BOOL {
+		s1, s2 = s2, s1
+	}
+	
+	emitStr(s, INPT_TEXTEDIT.col+1, INPT_TEXTEDIT.row, s1, "Yes")
+	emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width-3, INPT_TEXTEDIT.row, s2, "No")
+}
+
+func drawOutline(s tcell.Screen, edit *Edit, style tcell.Style, text string) {
+	emitStr(s, edit.col-1, edit.row-1, style, text+strings.Repeat(" ", edit.width+2-len(text)))
+	emitStr(s, edit.col-1, edit.row+1, style, strings.Repeat(" ", edit.width+2))
+	
+	for row := range edit.height {
+		emitStr(s, edit.col-1, edit.row+row, style, " ")
+		emitStr(s, edit.col+edit.width, edit.row+row, style, " ")
+	}
+}
+
 func drawFullEdit(s tcell.Screen) {
 	drawEdit(s, &MAIN_TEXTEDIT)
 	
 	if SHOWING_INPUT_MODAL {
-		emitStr(s, INPT_TEXTEDIT.col-1, INPT_TEXTEDIT.row-1, TITLE_STYLE, INPUT_MODAL_LABEL+strings.Repeat(" ", INPT_TEXTEDIT.width+2-len(INPUT_MODAL_LABEL)))
-		emitStr(s, INPT_TEXTEDIT.col-1, INPT_TEXTEDIT.row+1, TITLE_STYLE, strings.Repeat(" ", INPT_TEXTEDIT.width+2))
-		
-		emitStr(s, INPT_TEXTEDIT.col-1, INPT_TEXTEDIT.row, TITLE_STYLE, " ")
-		emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width, INPT_TEXTEDIT.row, TITLE_STYLE, " ")
-		
+		drawOutline(s, &INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
 		drawEdit(s, &INPT_TEXTEDIT)
+	}else if SHOWING_INPUT_BOOL {
+		drawOutline(s, &INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
+		drawYesNo(s)
 	}
 	
 	drawTitleBar(s)
@@ -734,6 +762,28 @@ func insertNewLine(edit *Edit) {
 	insertText(edit, "\n"+tabs)
 }
 
+func boolHandleKey(ev *tcell.EventKey) {
+	rawrune := ev.Rune()
+	
+	rune := unicode.ToLower(rawrune)
+	
+	if rune == 'y' {
+		CURRENT_SELECTED_BOOL = true
+	}else if rune == 'n' {
+		CURRENT_SELECTED_BOOL = false
+	}else if ev.Key() == tcell.KeyEnter {
+		SHOWING_INPUT_BOOL = false
+		if INPUT_MODAL_CALLBACK != nil {
+			INPUT_MODAL_CALLBACK()
+		}
+	}
+	
+	if rune == 'h' || rune == 'l' || ev.Key() == tcell.KeyLeft || ev.Key() == tcell.KeyRight || ev.Key() == tcell.KeyTab {
+		CURRENT_SELECTED_BOOL = !CURRENT_SELECTED_BOOL
+	}
+
+}
+
 func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	rawrune := ev.Rune()
 	
@@ -761,10 +811,22 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	}else if rune == 's' && alt_held {
 		saveFileAs()
 		return false
-	}else if ev.Key() == tcell.KeyEnter {
-		if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
+	}
+	
+	if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
+		if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc {
+			INPT_TEXTEDIT.cursor.row = 0
+			INPT_TEXTEDIT.cursor.col = 0
+			INPT_TEXTEDIT.cursor.row_anchor = 0
+			INPT_TEXTEDIT.cursor.col_anchor = 0
+			INPT_TEXTEDIT.buffer = []Line{{text: ""}}
+		}
+		
+		if ev.Key() == tcell.KeyEnter || ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc {
 			SHOWING_INPUT_MODAL = false
-			INPUT_MODAL_CALLBACK()
+			if INPUT_MODAL_CALLBACK != nil {
+				INPUT_MODAL_CALLBACK()
+			}
 		}
 	}
 	
@@ -1053,9 +1115,13 @@ func readyUndoHistory(edit *Edit) {
 func handleKey(s tcell.Screen, ev *tcell.EventKey) bool { // called in edit mode
 	if SHOWING_INPUT_MODAL {
 		return editHandleKey(s, ev, &INPT_TEXTEDIT)
+	}else if SHOWING_INPUT_BOOL {
+		boolHandleKey(ev)
 	}else{
 		return editHandleKey(s, ev, &MAIN_TEXTEDIT)
 	}
+	
+	return false
 }
 
 func getTrueCol(x, y int, edit *Edit) int {
@@ -1302,20 +1368,44 @@ func handleMouse(s tcell.Screen, ev *tcell.EventMouse) bool {
 	return false
 }
 
-func saveFile() {
+func saveFile() bool {
 	if file_name == "" {
 		saveFileAs()
+		return false // ?
 	}
-	err := os.WriteFile(file_name, []byte(getPlainText(&MAIN_TEXTEDIT)), 0644)
+	
+	plaintext := getPlainText(&MAIN_TEXTEDIT)
+	err := os.WriteFile(file_name, []byte(plaintext), 0644)
+	
 	if err != nil {
-		fmt.Printf("Error writing file: %v\n", err)
-		return
+		displayError("Error writing file: "+err.Error())
+		return false
 	}
+	
+	LAST_SAVED = plaintext
+	
+	if SAVE_CALLBACK != nil {
+		SAVE_CALLBACK()
+		SAVE_CALLBACK = nil
+	}
+	
+	return true
 }
 
 func getTextInput(text string) {
-	INPT_TEXTEDIT.buffer = []Line{Line{text: "", changed: true}} // clear old text.
+	INPT_TEXTEDIT.buffer = []Line{{text: "", changed: true}} // clear old text.
+	INPT_TEXTEDIT.cursor.row = 0
+	INPT_TEXTEDIT.cursor.col = 0
+	INPT_TEXTEDIT.cursor.row_anchor = 0
+	INPT_TEXTEDIT.cursor.col_anchor = 0
+	
 	SHOWING_INPUT_MODAL = true
+	INPUT_MODAL_LABEL = text
+}
+
+func getBoolInput(text string) {
+	SHOWING_INPUT_BOOL = true
+	CURRENT_SELECTED_BOOL = true
 	INPUT_MODAL_LABEL = text
 }
 
@@ -1323,12 +1413,32 @@ func continueSaveAs() {
 	new_name := getPlainText(&INPT_TEXTEDIT)
 	
 	if new_name == "" {
+		if SAVE_CALLBACK != nil {
+			SAVE_CALLBACK()
+			SAVE_CALLBACK = nil
+		}
+		return
+	}
+	
+	// create copy of file_name
+	old_name := file_name
+	file_name = new_name
+	
+	worked := saveFile()
+	if (!worked) {
+		file_name = old_name
+		title = file_name
+		SAVE_CALLBACK = nil
 		return
 	}
 	
 	file_name = new_name
 	adjustToFileName()
-	saveFile()
+	
+	if SAVE_CALLBACK != nil {
+		SAVE_CALLBACK()
+		SAVE_CALLBACK = nil
+	}
 }
 
 func saveFileAs() {
@@ -1346,7 +1456,7 @@ func openFile(s tcell.Screen) {
 	
 	file, err := os.Open(file_name)
 	if err != nil {
-		fmt.Printf("Error opening file: %v\n", err)
+		displayError("Error opening file: " + err.Error())
 		return
 	}
 	defer file.Close()
@@ -1357,10 +1467,45 @@ func openFile(s tcell.Screen) {
 		line := scanner.Text()
 		MAIN_TEXTEDIT.buffer = append(MAIN_TEXTEDIT.buffer, Line{text: line, changed: true})
 	}
+	
+	LAST_SAVED = getPlainText(&MAIN_TEXTEDIT)
 
 	if err := scanner.Err(); err != nil {
-		fmt.Printf("Error reading lines: %v\n", err)
+		displayError("Error reading lines: " + err.Error())
 	}
+}
+
+func checkForSave() {
+	INPUT_MODAL_CALLBACK = continueCheckForSave
+	getBoolInput("Unsaved, changes save?")
+}
+
+func finalizeCheckForSave() {
+	// good practice to set SAVE_CALLBACK = nil, in this case doesn't matter, we exit thereafter
+	SAVE_CALLBACK = nil
+	NEED_TO_EXIT = true
+}
+
+func continueCheckForSave() {
+	if CURRENT_SELECTED_BOOL {
+		SAVE_CALLBACK = finalizeCheckForSave
+		saveFile()
+	}else{
+		NEED_TO_EXIT = true
+	}
+}
+
+func displayError(errorMessage string) {
+	SHOWING_INPUT_MODAL = true
+	
+	INPT_TEXTEDIT.cursor.row = 0
+	INPT_TEXTEDIT.cursor.col = 0
+	INPT_TEXTEDIT.cursor.row_anchor = 0
+	INPT_TEXTEDIT.cursor.col_anchor = 0
+	
+	INPUT_MODAL_LABEL = ""
+	INPUT_MODAL_CALLBACK = nil
+	INPT_TEXTEDIT.buffer = []Line{{text: strings.ReplaceAll(errorMessage, "\n", ""), changed: true}}
 }
 
 func main() {
@@ -1381,7 +1526,7 @@ func main() {
 			return
 		} else {
 			if fileInfo.IsDir() {
-				fmt.Printf("Specified file was directory.")
+				fmt.Printf("Specified file was a directory.")
 				return
 			}
 		}
@@ -1458,7 +1603,8 @@ func main() {
 			}
 			
 			if handleKey(s, ev) { // exit condition
-				return
+				if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {return}
+				checkForSave()
 			}
 			
 			
@@ -1466,8 +1612,10 @@ func main() {
 		case *tcell.EventMouse:
 			if current_window == "edit" {
 				if handleMouse(s, ev) {
-					return
+					if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {return}
+					checkForSave()
 				}
+				
 				drawFullEdit(s)
 			}
 		case *tcell.EventResize:
@@ -1476,6 +1624,11 @@ func main() {
 		default:
 			// You can choose to log or ignore other event types
 		}
+		
+		if NEED_TO_EXIT {
+			return // this is the exit condition
+		}
+		
 		s.Show()
 	}
 }
