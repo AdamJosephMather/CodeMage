@@ -66,6 +66,7 @@ var version string = "0.0.1"
 var s tcell.Screen
 var current_window string
 var file_name string
+var absolute_path string
 var opening_file string
 var title string
 
@@ -1485,6 +1486,7 @@ func saveFileAs() {
 
 func adjustToFileName() {
 	cleanedPath := filepath.Clean(file_name)
+	absolute_path, _ = filepath.Abs(cleanedPath)
 	title = filepath.Base(cleanedPath)
 }
 
@@ -1514,6 +1516,7 @@ func openFile() {
 	}
 	
 	adjustToFileName()
+	getSavedPlace()
 }
 
 func openFileByUser(file_to_open string) {
@@ -1667,6 +1670,108 @@ func getStringColor(col tcell.Color) string {
 	return strconv.Itoa(int(r))+", "+strconv.Itoa(int(g))+", "+strconv.Itoa(int(b))
 }
 
+func savePlace() {
+	settings_path := filepath.Join(APP_CONFIG_DIR, "savedPlaces.cdmg")
+	_, err := os.Stat(settings_path);
+	
+	savedPlaces := []string{}
+	
+	if err == nil {
+		file, err := os.Open(settings_path)
+		if err == nil {
+			defer file.Close()
+			
+			scanner := bufio.NewScanner(file)
+			
+			for scanner.Scan() {
+				line := scanner.Text()
+				
+				splt := strings.Split(line, " ! ")
+				if len(splt) == 2 {
+					if splt[0] != absolute_path {
+						savedPlaces = append(savedPlaces, line)
+					}
+				}
+			}
+		}
+	}
+	
+	savedPlaces = append(savedPlaces, absolute_path+" ! "+strconv.Itoa(MAIN_TEXTEDIT.cursor.row)+","+strconv.Itoa(MAIN_TEXTEDIT.cursor.col)+","+strconv.Itoa(MAIN_TEXTEDIT.cursor.row_anchor)+","+strconv.Itoa(MAIN_TEXTEDIT.cursor.col_anchor))
+	
+	os.WriteFile(settings_path, []byte(strings.Join(savedPlaces, "\n")), 0644)
+}
+
+func getSavedPlace() {
+	settings_path := filepath.Join(APP_CONFIG_DIR, "savedPlaces.cdmg")
+	_, err := os.Stat(settings_path);
+	
+	if os.IsNotExist(err) {
+		return
+	}
+	
+	file, err := os.Open(settings_path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	
+	scanner := bufio.NewScanner(file)
+	
+	for scanner.Scan() {
+		line := scanner.Text()
+		
+		splt := strings.Split(line, " ! ")
+		if len(splt) == 2 {
+			if splt[0] == absolute_path {
+				splt2 := strings.Split(splt[1], ",")
+				if len(splt2) != 4 {
+					continue
+				}
+				
+				nums := []int{}
+				for _, nS := range splt2 {
+					num, err := strconv.Atoi(nS)
+					if err != nil {
+						continue
+					}
+					nums = append(nums, num)
+				}
+				
+				if nums[0] < 0{
+					nums[0] = 0
+				}else if nums[0] >= len(MAIN_TEXTEDIT.buffer) {
+					nums[0] = len(MAIN_TEXTEDIT.buffer)-1
+				}
+				
+				if nums[2] < 0{
+					nums[2] = 0
+				}else if nums[2] >= len(MAIN_TEXTEDIT.buffer) {
+					nums[2] = len(MAIN_TEXTEDIT.buffer)-1
+				}
+				
+				if nums[1] < 0{
+					nums[1] = 0
+				}else if nums[1] > len(MAIN_TEXTEDIT.buffer[nums[0]].text) {
+					nums[1] = len(MAIN_TEXTEDIT.buffer[nums[0]].text)
+				}
+				
+				if nums[3] < 0{
+					nums[3] = 0
+				}else if nums[3] > len(MAIN_TEXTEDIT.buffer[nums[2]].text) {
+					nums[3] = len(MAIN_TEXTEDIT.buffer[nums[2]].text)
+				}
+				
+				MAIN_TEXTEDIT.cursor.row = nums[0]
+				MAIN_TEXTEDIT.cursor.col = nums[1]
+				MAIN_TEXTEDIT.cursor.row_anchor = nums[2]
+				MAIN_TEXTEDIT.cursor.col_anchor = nums[3]
+				showCursor(&MAIN_TEXTEDIT)
+				return
+			}
+		}
+	}
+}
+
 func saveSettings() {
 	_, err := os.Stat(APP_CONFIG_DIR);
 	
@@ -1701,6 +1806,8 @@ func main() {
 		file_name = os.Args[1]
 		cleanedPath := filepath.Clean(file_name)
 		absPath, err := filepath.Abs(cleanedPath)
+		absolute_path = absPath
+		
 		if err != nil {
 			log.Fatalf("%+v", err)
 		}
@@ -1764,6 +1871,7 @@ func main() {
 	}else{
 		current_window = "edit"
 		openFile()
+		
 	}
 	
 	for {
@@ -1781,7 +1889,10 @@ func main() {
 			}
 			
 			if handleKey(ev) { // exit condition
-				if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {return}
+				if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {
+					savePlace()
+					return
+				}
 				CHECK_FOR_SAVE_CALLBACK = closeOnCheckDone
 				checkForSave()
 			}
@@ -1791,7 +1902,10 @@ func main() {
 		case *tcell.EventMouse:
 			if current_window == "edit" {
 				if handleMouse(ev) {
-					if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {return}
+					if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {
+						savePlace()
+						return
+					}
 					CHECK_FOR_SAVE_CALLBACK = closeOnCheckDone
 					checkForSave()
 				}
@@ -1806,6 +1920,7 @@ func main() {
 		}
 		
 		if NEED_TO_EXIT {
+			savePlace()
 			return // this is the exit condition
 		}
 		
