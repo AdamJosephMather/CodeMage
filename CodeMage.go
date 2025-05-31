@@ -546,7 +546,7 @@ func redrawFullScreen(s tcell.Screen) {
 			line := lines[i]
 			linelen := len(line)
 			startX := (width-linelen)/2
-			startY := (height/2)+i
+			startY := (height/2)+i-1
 			
 			emitStr(s, startX, startY, SPECIAL_STYLE, line)
 		}
