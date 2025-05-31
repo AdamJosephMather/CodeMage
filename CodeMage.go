@@ -66,6 +66,7 @@ var version string = "0.0.1"
 var s tcell.Screen
 var current_window string
 var file_name string
+var opening_file string
 var title string
 
 var DEF_STYLE tcell.Style
@@ -121,20 +122,38 @@ var FULL_END = 16
 var LAST_SAVED string
 var NEED_TO_EXIT bool
 var SAVE_CALLBACK func() = nil
+var CHECK_FOR_SAVE_CALLBACK func() = nil
 
-func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
+var APP_CONFIG_DIR string
+
+var titleColor = tcell.NewRGBColor(25, 25, 25)
+var highlightColor = tcell.NewRGBColor(100, 100, 100)
+var lineNumberColor = tcell.NewRGBColor(50, 50, 50)
+var stringColor = tcell.NewRGBColor(127, 173, 94)
+var colorFUNCTION = tcell.NewRGBColor(199, 157, 78)
+var colorKEYWORD = tcell.NewRGBColor(176, 95, 199)
+var colorNAME = tcell.NewRGBColor(245, 91, 102)
+var colorPUNC = tcell.NewRGBColor(127, 132, 142)
+var colorCOMMENT = tcell.NewRGBColor(127, 132, 142)
+var colorLITTERAL = tcell.NewRGBColor(194, 127, 64)
+var colorBackground = tcell.NewRGBColor(15, 15, 15)
+var colorSpecial = tcell.NewRGBColor(219, 150, 53)
+
+var SCROLL_SENSITIVITY int
+
+func emitStr(x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
 		s.SetContent(x+i, y, r, nil, style)
 	}
 }
 
-func emitStrColored(s tcell.Screen, x, y int, style []tcell.Style, str string) {
+func emitStrColored(x, y int, style []tcell.Style, str string) {
 	for i, r := range []rune(str) {
 		s.SetContent(x+i, y, r, nil, style[i])
 	}
 }
 
-func createEdit(s tcell.Screen) Edit {
+func createEdit() Edit {
 	width, height := s.Size()
 	
 	buffer := make([]Line, 1)
@@ -153,12 +172,12 @@ func createEdit(s tcell.Screen) Edit {
 	return edit
 }
 
-func setupUI(s tcell.Screen) {
+func setupUI() {
 	width, height := s.Size()
 	
-	MAIN_TEXTEDIT = createEdit(s)
+	MAIN_TEXTEDIT = createEdit()
 	
-	INPT_TEXTEDIT = createEdit(s)
+	INPT_TEXTEDIT = createEdit()
 	INPT_TEXTEDIT.width = 30
 	INPT_TEXTEDIT.height = 3
 	INPT_TEXTEDIT.row = height/2-1
@@ -169,13 +188,13 @@ func setupUI(s tcell.Screen) {
 	SHOWING_INPUT_BOOL = false
 	CURRENT_SELECTED_BOOL = true
 	
-	redrawFullScreen(s)
+	redrawFullScreen()
 }
 
-func createNew(s tcell.Screen) {
+func createNew() {
 	title = "Untitled"
 	file_name = ""
-	setupUI(s)
+	setupUI()
 }
 
 func checkForStyleUpdates(edit *Edit) {
@@ -317,7 +336,7 @@ func repeatSlice[T any](s T, n int) []T {
 	return repeated
 }
 
-func drawEdit(s tcell.Screen, edit *Edit) {
+func drawEdit(edit *Edit) {
 	checkForStyleUpdates(edit)
 	
 	buffer := edit.buffer
@@ -337,11 +356,11 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 		line_num := edit.toprow+yraw // 0 based
 		
 		if line_num >= len(buffer) && edit.use_line_numbers{
-			emitStr(s, edit.col, y, LINE_NUMBER_STYLE, strings.Repeat(" ", line_num_width-1)+"~"+strings.Repeat(" ", edit.width-line_num_width))
-			emitStr(s, edit.col+line_num_width, y, DEF_STYLE, strings.Repeat(" ", edit.width-line_num_width))
+			emitStr(edit.col, y, LINE_NUMBER_STYLE, strings.Repeat(" ", line_num_width-1)+"~"+strings.Repeat(" ", edit.width-line_num_width))
+			emitStr(edit.col+line_num_width, y, DEF_STYLE, strings.Repeat(" ", edit.width-line_num_width))
 			continue
 		}else if line_num >= len(buffer){
-			emitStr(s, edit.col, y, DEF_STYLE, strings.Repeat(" ", edit.width))
+			emitStr(edit.col, y, DEF_STYLE, strings.Repeat(" ", edit.width))
 			continue
 		}
 		
@@ -364,7 +383,7 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 				fullstr = line_rel_str+strings.Repeat(" ", num_spaces)
 			}
 			
-			emitStr(s, edit.col, y, LINE_NUMBER_STYLE, fullstr)
+			emitStr(edit.col, y, LINE_NUMBER_STYLE, fullstr)
 		}
 		
 		
@@ -474,11 +493,11 @@ func drawEdit(s tcell.Screen, edit *Edit) {
 		}
 		
 		x := edit.col+line_num_width
-		emitStrColored(s, x, y, styles, lineToDraw)
+		emitStrColored(x, y, styles, lineToDraw)
 	}
 }
 
-func drawYesNo(s tcell.Screen) {
+func drawYesNo() {
 	s1 := INVERTED_STYLE
 	s2 := DEF_STYLE
 	
@@ -487,43 +506,43 @@ func drawYesNo(s tcell.Screen) {
 	}
 	
 	for line := range INPT_TEXTEDIT.height {
-		emitStr(s, INPT_TEXTEDIT.col, INPT_TEXTEDIT.row+line, DEF_STYLE, strings.Repeat(" ", INPT_TEXTEDIT.width))
+		emitStr(INPT_TEXTEDIT.col, INPT_TEXTEDIT.row+line, DEF_STYLE, strings.Repeat(" ", INPT_TEXTEDIT.width))
 	}
 	
-	emitStr(s, INPT_TEXTEDIT.col+2, INPT_TEXTEDIT.row+1, s1, "Yes")
-	emitStr(s, INPT_TEXTEDIT.col+INPT_TEXTEDIT.width-4, INPT_TEXTEDIT.row+1, s2, "No")
+	emitStr(INPT_TEXTEDIT.col+2, INPT_TEXTEDIT.row+1, s1, "Yes")
+	emitStr(INPT_TEXTEDIT.col+INPT_TEXTEDIT.width-4, INPT_TEXTEDIT.row+1, s2, "No")
 }
 
-func drawOutline(s tcell.Screen, edit *Edit, style tcell.Style, text string) {
-	emitStr(s, edit.col-2, edit.row-1, style, text+strings.Repeat(" ", edit.width+4-len(text)))
-	emitStr(s, edit.col-2, edit.row+edit.height, style, strings.Repeat(" ", edit.width+4))
+func drawOutline(edit *Edit, style tcell.Style, text string) {
+	emitStr(edit.col-2, edit.row-1, style, text+strings.Repeat(" ", edit.width+4-len(text)))
+	emitStr(edit.col-2, edit.row+edit.height, style, strings.Repeat(" ", edit.width+4))
 	
 	for row := range edit.height {
-		emitStr(s, edit.col-2, edit.row+row, style, "  ")
-		emitStr(s, edit.col+edit.width, edit.row+row, style, "  ")
+		emitStr(edit.col-2, edit.row+row, style, "  ")
+		emitStr(edit.col+edit.width, edit.row+row, style, "  ")
 	}
 }
 
-func drawFullEdit(s tcell.Screen) {
-	drawEdit(s, &MAIN_TEXTEDIT)
+func drawFullEdit() {
+	drawEdit(&MAIN_TEXTEDIT)
 	
 	if SHOWING_INPUT_MODAL {
-		drawOutline(s, &INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
-		drawEdit(s, &INPT_TEXTEDIT)
+		drawOutline(&INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
+		drawEdit(&INPT_TEXTEDIT)
 	}else if SHOWING_INPUT_BOOL {
-		drawOutline(s, &INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
-		drawYesNo(s)
+		drawOutline(&INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
+		drawYesNo()
 	}
 	
-	drawTitleBar(s)
+	drawTitleBar()
 }
 
-func drawTitleBar(s tcell.Screen) {
+func drawTitleBar() {
 	w, _ := s.Size()
 	
 	text := "CodeMage V"+version+" - "+title
 	text += strings.Repeat(" ", w-len(text))
-	emitStr(s, 0, 0, TITLE_STYLE, text)
+	emitStr(0, 0, TITLE_STYLE, text)
 	
 	text = "ERROR IN MAKING THE TITLEBAR?"
 	if MAIN_TEXTEDIT.current_mode == "n" {
@@ -531,10 +550,10 @@ func drawTitleBar(s tcell.Screen) {
 	}else if MAIN_TEXTEDIT.current_mode == "i" {
 		text = "INSERT"
 	}
-	emitStr(s, w-len(text), 0, TITLE_STYLE, text)
+	emitStr(w-len(text), 0, TITLE_STYLE, text)
 }
 
-func redrawFullScreen(s tcell.Screen) {
+func redrawFullScreen() {
 	s.Sync()
 	s.Clear()
 	width, height := s.Size()
@@ -548,7 +567,7 @@ func redrawFullScreen(s tcell.Screen) {
 			startX := (width-linelen)/2
 			startY := (height/2)+i-1
 			
-			emitStr(s, startX, startY, SPECIAL_STYLE, line)
+			emitStr(startX, startY, SPECIAL_STYLE, line)
 		}
 	}else if current_window == "edit" {
 		MAIN_TEXTEDIT.width = width
@@ -559,7 +578,7 @@ func redrawFullScreen(s tcell.Screen) {
 		INPT_TEXTEDIT.row = height/2-1
 		INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
 		
-		drawFullEdit(s)
+		drawFullEdit()
 	}
 	
 	s.Show()
@@ -786,10 +805,9 @@ func boolHandleKey(ev *tcell.EventKey) {
 	if rune == 'h' || rune == 'l' || ev.Key() == tcell.KeyLeft || ev.Key() == tcell.KeyRight || ev.Key() == tcell.KeyTab {
 		CURRENT_SELECTED_BOOL = !CURRENT_SELECTED_BOOL
 	}
-
 }
 
-func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
+func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	rawrune := ev.Rune()
 	
 	rune := unicode.ToLower(rawrune)
@@ -816,6 +834,8 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 	}else if rune == 's' && alt_held {
 		saveFileAs()
 		return false
+	}else if ev.Key() == tcell.KeyCtrlG {
+		openFileByUser(filepath.Join(APP_CONFIG_DIR, "allSettings.cdmg"))
 	}
 	
 	if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
@@ -873,7 +893,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 			moveCursor(END_OF_LINE, keepAnchor, 1, edit)
 			edit.current_mode = "i"
 			edit.number_string = ""
-			drawTitleBar(s)
+			drawTitleBar()
 		}else if rune == '^' {
 			moveCursor(START_OF_LINE, false, 1, edit)
 		}else if rune == 'o' {
@@ -881,7 +901,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 			insertNewLine(edit)
 			edit.current_mode = "i"
 			edit.number_string = ""
-			drawTitleBar(s)
+			drawTitleBar()
 		}else if rune == 'v' {
 			text := clipboard.Read(clipboard.FmtText)
 			insertText(edit, string(text))
@@ -895,7 +915,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		}else if rune == 'i' {
 			edit.current_mode = "i"
 			edit.number_string = ""
-			drawTitleBar(s)
+			drawTitleBar()
 		}else if rune == 'g' {
 			if repeatCount <= 0{
 				repeatCount = 1
@@ -945,7 +965,7 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 		if ev.Key() == tcell.KeyEscape {
 			edit.current_mode = "n"
 			edit.number_string = ""
-			drawTitleBar(s)
+			drawTitleBar()
 		}else if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
 			if control_held {
 				deleteText(BACKSPACE_WORD, 1, edit)
@@ -1129,13 +1149,13 @@ func readyUndoHistory(edit *Edit) {
 	edit.REDO_HISTORY = []Snapshot{}
 }
 
-func handleKey(s tcell.Screen, ev *tcell.EventKey) bool { // called in edit mode
+func handleKey(ev *tcell.EventKey) bool { // called in edit mode
 	if SHOWING_INPUT_MODAL {
-		return editHandleKey(s, ev, &INPT_TEXTEDIT)
+		return editHandleKey(ev, &INPT_TEXTEDIT)
 	}else if SHOWING_INPUT_BOOL {
 		boolHandleKey(ev)
 	}else{
-		return editHandleKey(s, ev, &MAIN_TEXTEDIT)
+		return editHandleKey(ev, &MAIN_TEXTEDIT)
 	}
 	
 	return false
@@ -1338,7 +1358,7 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	}
 }
 
-func handleMouse(s tcell.Screen, ev *tcell.EventMouse) bool {
+func handleMouse(ev *tcell.EventMouse) bool {
 	buttons := ev.Buttons()
 	x, y := ev.Position()
 	
@@ -1347,13 +1367,13 @@ func handleMouse(s tcell.Screen, ev *tcell.EventMouse) bool {
 	}
 	
 	if buttons&tcell.WheelUp != 0 {
-		MAIN_TEXTEDIT.toprow -= 4
+		MAIN_TEXTEDIT.toprow -= SCROLL_SENSITIVITY
 		if MAIN_TEXTEDIT.toprow < 0 {
 			MAIN_TEXTEDIT.toprow = 0
 		}
 	}
 	if buttons&tcell.WheelDown != 0 {
-		MAIN_TEXTEDIT.toprow += 4
+		MAIN_TEXTEDIT.toprow += SCROLL_SENSITIVITY
 		if MAIN_TEXTEDIT.toprow > len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height {
 			MAIN_TEXTEDIT.toprow = len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height
 		}
@@ -1468,8 +1488,8 @@ func adjustToFileName() {
 	title = filepath.Base(cleanedPath)
 }
 
-func openFile(s tcell.Screen) {
-	setupUI(s)
+func openFile() {
+	setupUI()
 	
 	file, err := os.Open(file_name)
 	if err != nil {
@@ -1492,6 +1512,33 @@ func openFile(s tcell.Screen) {
 	if err := scanner.Err(); err != nil {
 		displayError("Error reading lines: " + err.Error())
 	}
+	
+	adjustToFileName()
+}
+
+func openFileByUser(file_to_open string) {
+	opening_file = file_to_open
+	
+	if LAST_SAVED != getPlainText(&MAIN_TEXTEDIT) {
+		CHECK_FOR_SAVE_CALLBACK = nextOpenFileByUser
+		checkForSave()
+	}else{
+		nextOpenFileByUser()
+	}
+}
+
+func closeOnCheckDone() {
+	SAVE_CALLBACK = nil
+	CHECK_FOR_SAVE_CALLBACK = nil
+	NEED_TO_EXIT = true
+}
+
+func nextOpenFileByUser() {
+	CHECK_FOR_SAVE_CALLBACK = nil
+	SAVE_CALLBACK = nil
+	
+	file_name = opening_file
+	openFile()
 }
 
 func checkForSave() {
@@ -1499,18 +1546,15 @@ func checkForSave() {
 	getBoolInput("Unsaved, changes save?")
 }
 
-func finalizeCheckForSave() {
-	// good practice to set SAVE_CALLBACK = nil, in this case doesn't matter, we exit thereafter
-	SAVE_CALLBACK = nil
-	NEED_TO_EXIT = true
-}
 
 func continueCheckForSave() {
 	if CURRENT_SELECTED_BOOL {
-		SAVE_CALLBACK = finalizeCheckForSave
+		SAVE_CALLBACK = CHECK_FOR_SAVE_CALLBACK
 		saveFile()
 	}else{
-		NEED_TO_EXIT = true
+		if CHECK_FOR_SAVE_CALLBACK != nil {
+			CHECK_FOR_SAVE_CALLBACK()
+		}
 	}
 }
 
@@ -1527,7 +1571,132 @@ func displayError(errorMessage string) {
 	INPT_TEXTEDIT.buffer = []Line{{text: errorMessage, changed: true}}
 }
 
+func getConfigDir() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatalf("Error getting user config directory: %v", err)
+	}
+	APP_CONFIG_DIR = filepath.Join(configDir, "CodeMage")
+}
+
+func getSpecificVar(known [][]string, lookingfor string) string {
+	for i := range(known) {
+		if len(known[i]) != 2 {
+			continue
+		}
+		
+		if known[i][0] == lookingfor {
+			return known[i][1]
+		}
+	}
+	
+	return ""
+}
+
+func getTcellColor(inpt string, def tcell.Color) tcell.Color {
+	inpt = strings.ReplaceAll(inpt, " ", "")
+	rgb := strings.Split(inpt, ",")
+	
+	if len(rgb) != 3 {
+		return def
+	}
+	
+	nrgb := []int32{}
+	
+	for _, v := range(rgb) {
+		val, err := strconv.Atoi(v)
+		if err != nil || val > 255 || val < 0 {
+			return def
+		}
+		nrgb = append(nrgb, int32(val))
+	}
+	
+	return tcell.NewRGBColor(nrgb[0], nrgb[1], nrgb[2])
+}
+
+func getInt(found string, def int) int {
+	vl, err := strconv.Atoi(found)
+	if err != nil {
+		return def
+	}
+	
+	return vl
+}
+
+func loadSettings() {
+	settings_path := filepath.Join(APP_CONFIG_DIR, "allSettings.cdmg")
+	_, err := os.Stat(settings_path);
+	
+	if os.IsNotExist(err) {
+		return
+	}
+	
+	file, err := os.Open(settings_path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	
+	scanner := bufio.NewScanner(file)
+	
+	known := [][]string{}
+	
+	for scanner.Scan() {
+		line := scanner.Text()
+		
+		splt := strings.Split(line, ": ")
+		known = append(known, splt)
+	}
+	
+	if err := scanner.Err(); err != nil {
+		displayError("Error reading lines: " + err.Error())
+	}
+	
+	stringColor = getTcellColor(getSpecificVar(known,"stringColor"), tcell.NewRGBColor(127, 173, 94))
+	colorFUNCTION = getTcellColor(getSpecificVar(known,"colorFUNCTION"), tcell.NewRGBColor(199, 157, 78))
+	colorKEYWORD = getTcellColor(getSpecificVar(known,"colorKEYWORD"), tcell.NewRGBColor(176, 95, 199))
+	colorNAME = getTcellColor(getSpecificVar(known,"colorNAME"), tcell.NewRGBColor(245, 91, 102))
+	colorPUNC = getTcellColor(getSpecificVar(known,"colorPUNC"), tcell.NewRGBColor(127, 132, 142))
+	colorCOMMENT = getTcellColor(getSpecificVar(known,"colorCOMMENT"), tcell.NewRGBColor(127, 132, 142))
+	colorLITTERAL = getTcellColor(getSpecificVar(known,"colorLITTERAL"), tcell.NewRGBColor(194, 127, 64))
+	SCROLL_SENSITIVITY = getInt(getSpecificVar(known,"SCROLL_SENSITIVITY"), 3)
+}
+
+func getStringColor(col tcell.Color) string {
+	r, g, b := col.RGB()
+	return strconv.Itoa(int(r))+", "+strconv.Itoa(int(g))+", "+strconv.Itoa(int(b))
+}
+
+func saveSettings() {
+	_, err := os.Stat(APP_CONFIG_DIR);
+	
+	if os.IsNotExist(err) {
+		err = os.Mkdir(APP_CONFIG_DIR, 0755)
+	}
+	
+	settings_path := filepath.Join(APP_CONFIG_DIR, "allSettings.cdmg")
+	
+	settings_lines := []string{}
+	
+	settings_lines = append(settings_lines, "")
+	
+	settings_lines = append(settings_lines, "stringColor: "+getStringColor(stringColor))
+	settings_lines = append(settings_lines, "colorFUNCTION: "+getStringColor(colorFUNCTION))
+	settings_lines = append(settings_lines, "colorKEYWORD: "+getStringColor(colorKEYWORD))
+	settings_lines = append(settings_lines, "colorNAME: "+getStringColor(colorNAME))
+	settings_lines = append(settings_lines, "colorPUNC: "+getStringColor(colorPUNC))
+	settings_lines = append(settings_lines, "colorCOMMENT: "+getStringColor(colorCOMMENT))
+	settings_lines = append(settings_lines, "colorLITTERAL: "+getStringColor(colorLITTERAL))
+	settings_lines = append(settings_lines, "SCROLL_SENSITIVITY: "+strconv.Itoa(SCROLL_SENSITIVITY))
+	
+	os.WriteFile(settings_path, []byte(strings.Join(settings_lines, "\n")), 0644)
+}
+
 func main() {
+	getConfigDir()
+	loadSettings()
+	saveSettings()
+	
 	if len(os.Args) > 1 {
 		file_name = os.Args[1]
 		cleanedPath := filepath.Clean(file_name)
@@ -1558,7 +1727,7 @@ func main() {
 		log.Fatalf("%+v", err)
 	}
 	
-	s, err := tcell.NewScreen()
+	s, err = tcell.NewScreen()
 	if err != nil {
 		log.Fatalf("%+v", err)
 	}
@@ -1569,19 +1738,6 @@ func main() {
 	defer s.Fini()
 	
 	s.EnableMouse()
-	
-	titleColor := tcell.NewRGBColor(25, 25, 25)
-	highlightColor := tcell.NewRGBColor(100, 100, 100)
-	lineNumberColor := tcell.NewRGBColor(50, 50, 50)
-	stringColor := tcell.NewRGBColor(127, 173, 94)
-	colorFUNCTION := tcell.NewRGBColor(199, 157, 78)
-	colorKEYWORD := tcell.NewRGBColor(176, 95, 199)
-	colorNAME := tcell.NewRGBColor(245, 91, 102)
-	colorPUNC := tcell.NewRGBColor(127, 132, 142)
-	colorCOMMENT := tcell.NewRGBColor(127, 132, 142)
-	colorLITTERAL := tcell.NewRGBColor(194, 127, 64)
-	colorBackground := tcell.NewRGBColor(15, 15, 15)
-	colorSpecial := tcell.NewRGBColor(219, 150, 53)
 	
 	DEF_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(tcell.ColorWhite)
 	INVERTED_STYLE = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
@@ -1604,10 +1760,10 @@ func main() {
 	
 	if file_name == ""{
 		current_window = "blank"
-		redrawFullScreen(s)
+		redrawFullScreen()
 	}else{
 		current_window = "edit"
-		openFile(s)
+		openFile()
 	}
 	
 	for {
@@ -1621,27 +1777,29 @@ func main() {
 			
 			if current_window != "edit"{
 				current_window = "edit"
-				createNew(s)
+				createNew()
 			}
 			
-			if handleKey(s, ev) { // exit condition
+			if handleKey(ev) { // exit condition
 				if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {return}
+				CHECK_FOR_SAVE_CALLBACK = closeOnCheckDone
 				checkForSave()
 			}
 			
 			
-			drawFullEdit(s)
+			drawFullEdit()
 		case *tcell.EventMouse:
 			if current_window == "edit" {
-				if handleMouse(s, ev) {
+				if handleMouse(ev) {
 					if LAST_SAVED == getPlainText(&MAIN_TEXTEDIT) {return}
+					CHECK_FOR_SAVE_CALLBACK = closeOnCheckDone
 					checkForSave()
 				}
 				
-				drawFullEdit(s)
+				drawFullEdit()
 			}
 		case *tcell.EventResize:
-			redrawFullScreen(s)
+			redrawFullScreen()
 		
 		default:
 			// You can choose to log or ignore other event types
