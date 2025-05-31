@@ -81,6 +81,7 @@ var NAME_STYLE tcell.Style
 var PUNC_STYLE tcell.Style
 var COMMENT_STYLE tcell.Style
 var LITTERAL_STYLE tcell.Style
+var SPECIAL_STYLE tcell.Style
 
 var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null", "try", "catch", "except", "default"}
 
@@ -543,7 +544,7 @@ func redrawFullScreen(s tcell.Screen) {
 			startX := (width-linelen)/2
 			startY := (height/2)+i
 			
-			emitStr(s, startX, startY, DEF_STYLE, line)
+			emitStr(s, startX, startY, SPECIAL_STYLE, line)
 		}
 	}else if current_window == "edit" {
 		MAIN_TEXTEDIT.width = width
@@ -891,6 +892,18 @@ func editHandleKey(s tcell.Screen, ev *tcell.EventKey, edit *Edit) bool {
 			edit.current_mode = "i"
 			edit.number_string = ""
 			drawTitleBar(s)
+		}else if rune == 'g' {
+			if repeatCount <= 0{
+				repeatCount = 1
+			}else if repeatCount > len(edit.buffer) {
+				repeatCount = len(edit.buffer)
+			}
+			
+			edit.cursor.col = 0
+			edit.cursor.row = repeatCount-1
+			edit.cursor.row_anchor = repeatCount-1
+			edit.cursor.col_anchor = 0
+			
 		}else if ev.Key() == tcell.KeyDown {
 			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
 		}else if ev.Key() == tcell.KeyUp {
@@ -1562,6 +1575,7 @@ func main() {
 	colorCOMMENT := tcell.NewRGBColor(127, 132, 142)
 	colorLITTERAL := tcell.NewRGBColor(194, 127, 64)
 	colorBackground := tcell.NewRGBColor(15, 15, 15)
+	colorSpecial := tcell.NewRGBColor(219, 150, 53)
 	
 	DEF_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(tcell.ColorWhite)
 	INVERTED_STYLE = tcell.StyleDefault.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack)
@@ -1576,6 +1590,7 @@ func main() {
 	PUNC_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorPUNC)
 	COMMENT_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorCOMMENT)
 	LITTERAL_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorLITTERAL)
+	SPECIAL_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorSpecial)
 	
 	s.SetStyle(DEF_STYLE)
 	s.Clear()
