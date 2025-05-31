@@ -1476,6 +1476,8 @@ func openFile(s tcell.Screen) {
 	
 	scanner := bufio.NewScanner(file)
 	
+	MAIN_TEXTEDIT.buffer = []Line{}
+	
 	for scanner.Scan() {
 		line := scanner.Text()
 		MAIN_TEXTEDIT.buffer = append(MAIN_TEXTEDIT.buffer, Line{text: line, changed: true})
