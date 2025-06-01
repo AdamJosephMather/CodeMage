@@ -879,6 +879,65 @@ func boolHandleKey(ev *tcell.EventKey) {
 	}
 }
 
+func indent(edit *Edit) {
+	start_row := edit.cursor.row
+	end_row := edit.cursor.row_anchor
+	
+	if start_row > end_row {
+		start_row, end_row = end_row, start_row
+	}
+	
+	for indx, line := range edit.buffer {
+		if indx < start_row || indx > end_row {
+			continue
+		}
+		
+		line.text = "\t"+line.text
+		line.changed = true
+		edit.buffer[indx] = line
+	}
+	
+	edit.cursor.col ++
+	edit.cursor.col_anchor ++
+}
+
+func deindent(edit *Edit) {
+	start_row := edit.cursor.row
+	end_row := edit.cursor.row_anchor
+	
+	if start_row > end_row {
+		start_row, end_row = end_row, start_row
+	}
+	
+	for indx, line := range edit.buffer {
+		if indx < start_row || indx > end_row {
+			continue
+		}
+		if len(line.text) == 0 {
+			continue
+		}
+		
+		if line.text[0] == '\t' {
+			line.text = line.text[1:]
+			line.changed = true
+			edit.buffer[indx] = line
+			
+			if indx == edit.cursor.row {
+				edit.cursor.col --
+			}else if indx == edit.cursor.row_anchor {
+				edit.cursor.col_anchor --
+			}
+		}
+	}
+	
+	if edit.cursor.col < 0 {
+		edit.cursor.col = 0
+	}
+	if edit.cursor.col_anchor < 0 {
+		edit.cursor.col_anchor = 0
+	}
+}
+
 func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	rawrune := ev.Rune()
 	
@@ -914,6 +973,10 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	}else if ev.Key() == tcell.KeyCtrlF {
 		openFindMenu()
 		return false
+	}else if rune == '[' && edit.current_mode == "n" {
+		deindent(edit)
+	}else if rune == ']' && edit.current_mode == "n" {
+		indent(edit)
 	}
 	
 	if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
@@ -2053,7 +2116,7 @@ func getSavedPlace() {
 
 func writeHelp() {
 	settings_path := filepath.Join(APP_CONFIG_DIR, "help.cdmg")
-	os.WriteFile(settings_path, []byte("# CodeMage V"+version+"\n\n# A terminal editor designed by Adam Mather.\n\n# Multi-modality:\n\t# CodeMage is designed with a multimodal setup from the start. It's designed to be similar to the CodeWizard 'VIM' mode. Help is available in CodeWizard.\n\n# For any more help contact Adam Mather (lol). adamjosephmather@gmail.com"), 0644)
+	os.WriteFile(settings_path, []byte("# CodeMage V"+version+"\n\n# A terminal editor designed by Adam Mather.\n\n# Multi-modality:\n\t# CodeMage is designed with a multimodal setup from the start. It's designed to be similar to the CodeWizard 'VIM' mode. Help is available in CodeWizard.\n\n# Keybindings:\n\t# In Normal mode, you may use '[' and ']'  to deindent, and indent the text respectively.\n\t# Ctrl+Q to exit.\n\n# For any more help contact Adam Mather (lol). adamjosephmather@gmail.com"), 0644)
 }
 
 func saveSettings() {
