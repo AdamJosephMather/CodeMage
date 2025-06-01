@@ -24,6 +24,7 @@ type Line struct {
 	start_str_type rune
 	end_str bool
 	end_str_type rune
+	names []string
 }
 
 type Edit struct {
@@ -44,6 +45,8 @@ type Edit struct {
 	
 	UNDO_HISTORY []Snapshot
 	REDO_HISTORY []Snapshot
+	
+	is_main bool
 }
 
 type Cursor struct {
@@ -100,6 +103,9 @@ var CURRENT_SELECTED_BOOL bool
 var INPUT_MODAL_LABEL string
 var BUTTON_DOWN bool
 
+var SUGGESTIONS []string
+var SELECTED_SUGGESTION int
+
 var MOVE_DOWN = 1
 var MOVE_UP = 2
 var MOVE_LEFT = 3
@@ -148,6 +154,7 @@ var CURRENT_TEXT_EDIT string = "main"
 
 var SCROLL_SENSITIVITY int
 var CUR_X, CUR_Y int
+var CUR_CURS_X, CUR_CURS_Y int
 
 func emitStr(x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
@@ -168,10 +175,10 @@ func createEdit() Edit {
 	old_buffer := make([]string, 1)
 	
 	cursor := Cursor{row: 0, col: 0, row_anchor: 0, col_anchor: 0}
-	buffer[0] = Line{text: "", end_str: false}
+	buffer[0] = Line{text: "", end_str: false, names: []string{}}
 	old_buffer[0] = ""
 	
-	edit := Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i", number_string: ""}
+	edit := Edit{row: 1, col: 0, width: width, height: height-1, buffer: buffer, cursor: cursor, toprow: 0, leftchar: 0, use_line_numbers: true, current_mode: "i", number_string: "", is_main: false}
 	
 	readyUndoHistory(&edit)
 	
@@ -184,6 +191,7 @@ func setupUI() {
 	width, height := s.Size()
 	
 	MAIN_TEXTEDIT = createEdit()
+	MAIN_TEXTEDIT.is_main = true
 	
 	INPT_TEXTEDIT = createEdit()
 	INPT_TEXTEDIT.width = 30
@@ -236,6 +244,7 @@ func checkForStyleUpdates(edit *Edit) {
 		
 		line.styles = []tcell.Style{}
 		line.changed = false
+		line.names = []string{}
 		line.start_str = preline.end_str
 		line.start_str_type = preline.end_str_type
 		
@@ -313,6 +322,10 @@ func checkForStyleUpdates(edit *Edit) {
 			}
 			
 			if !is_name && was_name {
+				if !slices.Contains(line.names, name) {
+					line.names = append(line.names, name)
+				}
+				
 				if char == '(' {
 					for rep := range(len(line.styles)-start_of_name-1) {
 						line.styles[rep+start_of_name] = FUNCTION_STYLE
@@ -331,6 +344,10 @@ func checkForStyleUpdates(edit *Edit) {
 		}
 		
 		if was_name {
+			if !slices.Contains(line.names, name) {
+				line.names = append(line.names, name)
+			}
+			
 			if slices.Contains(KEYWORDS, name) {
 				for rep := range(len(line.styles)-start_of_name) {
 					line.styles[rep+start_of_name] = KEYWORD_STYLE
@@ -361,6 +378,10 @@ func repeatSlice[T any](s T, n int) []T {
 
 func drawEdit(edit *Edit, is_current bool) {
 	checkForStyleUpdates(edit)
+	
+	if edit.is_main {
+		CUR_CURS_X, CUR_CURS_Y = -99, -99
+	}
 	
 	buffer := edit.buffer
 	cursor := edit.cursor
@@ -459,7 +480,13 @@ func drawEdit(edit *Edit, is_current bool) {
 		styles := []tcell.Style{}
 		
 		for true {
-			is_cursor := curs_line && charIndx == curs_char && is_current
+			is_cursor := curs_line && charIndx == curs_char
+			
+			if edit.is_main && is_cursor {
+				CUR_CURS_X, CUR_CURS_Y = len(lineToDraw), y
+			}
+			is_cursor = is_cursor && is_current
+			
 			is_in_highlight := charIndx > minRng && charIndx < maxRng
 			
 			cur_style := DEF_STYLE
@@ -546,8 +573,37 @@ func drawOutline(edit *Edit, style tcell.Style, text string) {
 	}
 }
 
+func drawSuggestions() {
+	maxLen := 20
+	
+	for indx := range SUGGESTIONS {
+		tru_indx := SELECTED_SUGGESTION+indx
+		
+		if tru_indx >= len(SUGGESTIONS) {
+			break
+		}
+		
+		word := SUGGESTIONS[tru_indx]
+		
+		if indx <= 7 {
+			if len(word) > maxLen {
+				word = word[:maxLen]
+			}else if len(word) < maxLen {
+				word += strings.Repeat(" ", maxLen-len(word))
+			}
+			
+			if indx == 0 {
+				emitStr(CUR_CURS_X, CUR_CURS_Y+1+indx, INVERTED_STYLE, word)
+			}else {
+				emitStr(CUR_CURS_X, CUR_CURS_Y+1+indx, LINE_NUMBER_STYLE, word)
+			}
+		}
+	}
+}
+
 func drawFullEdit() {
 	drawEdit(&MAIN_TEXTEDIT, CURRENT_TEXT_EDIT == "main")
+	drawSuggestions()
 	
 	if SHOWING_INPUT_MODAL {
 		drawOutline(&INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
@@ -938,6 +994,60 @@ func deindent(edit *Edit) {
 	}
 }
 
+func hideSuggestions() {
+	SUGGESTIONS = []string{}
+}
+
+func getLastRealSect(edit *Edit) string {
+	startingword := ""
+	
+	ln := edit.buffer[edit.cursor.row].text[:edit.cursor.col]
+	for i := range ln {
+		ti := len(ln)-i-1
+		chr := string(ln[ti])
+		
+		if !strings.Contains(PUNCTUATION, chr) && !strings.Contains(WHITESPACE, chr) {
+			startingword = chr + startingword
+		}else{
+			break
+		}
+	}
+	
+	return startingword
+}
+
+func readySuggestion() {
+	SUGGESTIONS = []string{}
+	startingword := getLastRealSect(&MAIN_TEXTEDIT)
+	SELECTED_SUGGESTION = 0
+	
+	startingwordlen := len(startingword)
+	if startingwordlen == 0 {
+		return
+	}
+	
+	for _, line := range MAIN_TEXTEDIT.buffer {
+		for _, word := range(line.names) {
+			if len(word) <= startingwordlen {continue}
+			
+			strt := word[:startingwordlen]
+			if strt == startingword && !slices.Contains(SUGGESTIONS, word){
+				SUGGESTIONS = append(SUGGESTIONS, word)
+			}
+		}
+	}
+}
+
+func activateSuggestion() {
+	existing := getLastRealSect(&MAIN_TEXTEDIT)
+	if SELECTED_SUGGESTION < len(SUGGESTIONS) {
+		suggest := SUGGESTIONS[SELECTED_SUGGESTION]
+		end := suggest[len(existing):]
+		insertText(&MAIN_TEXTEDIT, end)
+		readySuggestion()
+	}
+}
+
 func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	rawrune := ev.Rune()
 	
@@ -1043,6 +1153,10 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		}
 	}
 	
+	if ev.Key() == tcell.KeyBackspace || ev.Key() == tcell.KeyBackspace2 {
+		hideSuggestions()
+	}
+	
 	if edit.current_mode == "n" && !handled {
 		if strings.Contains(NUMBERS, string(rune)) {
 			edit.number_string += string(rune)
@@ -1050,12 +1164,34 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 			edit.number_string = ""
 		}
 		
+		if edit.is_main && (strings.Contains("hl", string(rune)) || ev.Key() == tcell.KeyEsc || ev.Key() == tcell.KeyEscape) {
+			hideSuggestions()
+		}
+		
 		if ev.Key() == tcell.KeyEnter{
-			insertNewLine(edit)
-		}else if rune == 'j' {
-			moveCursor(MOVE_DOWN, keepAnchor, repeatCount, edit)
-		}else if rune == 'k' {
-			moveCursor(MOVE_UP, keepAnchor, repeatCount, edit)
+			if edit.is_main && len(SUGGESTIONS) != 0{
+				activateSuggestion()
+			}else{
+				insertNewLine(edit)
+			}
+		}else if rune == 'j' || ev.Key() == tcell.KeyDown {
+			if len(SUGGESTIONS) != 0 {
+				SELECTED_SUGGESTION += 1
+				if SELECTED_SUGGESTION >= len(SUGGESTIONS) {
+					SELECTED_SUGGESTION = 0
+				}
+			}else{
+				moveCursor(MOVE_DOWN, keepAnchor, repeatCount, edit)
+			}
+		}else if rune == 'k' || ev.Key() == tcell.KeyUp {
+			if len(SUGGESTIONS) != 0 {
+				SELECTED_SUGGESTION -= 1
+				if SELECTED_SUGGESTION < 0 {
+					SELECTED_SUGGESTION = len(SUGGESTIONS)-1
+				}
+			}else{
+				moveCursor(MOVE_UP, keepAnchor, repeatCount, edit)
+			}
 		}else if rune == 'h' {
 			moveCursor(MOVE_LEFT, keepAnchor, repeatCount, edit)
 		}else if rune == 'l' {
@@ -1107,10 +1243,6 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 			edit.cursor.row_anchor = repeatCount-1
 			edit.cursor.col_anchor = 0
 			
-		}else if ev.Key() == tcell.KeyDown {
-			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
-		}else if ev.Key() == tcell.KeyUp {
-			moveCursor(MOVE_UP, keepAnchor, 1, edit)
 		}else if ev.Key() == tcell.KeyLeft {
 			if control_held {
 				moveCursor(WORD_LEFT, keepAnchor, 1, edit)
@@ -1138,9 +1270,15 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		}else if ev.Key() == tcell.KeyEnter && !SHOWING_FIND {
 			insertText(edit, "\n")
 		}else if rune == '\t' {
-			insertText(edit, "\t")
+			if edit.is_main && len(SUGGESTIONS) != 0{
+				activateSuggestion()
+			}else{
+				insertText(edit, "\t")
+			}
 		}else if rune == 'f' {
 			openFindMenu()
+		}else if rune == ' '{
+			insertText(edit, " ")
 		}
 	}else if edit.current_mode == "i" && !handled{
 		if ev.Key() == tcell.KeyEscape {
@@ -1160,9 +1298,23 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 				deleteText(DELETE, 1, edit)
 			}
 		}else if ev.Key() == tcell.KeyDown {
-			moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+			if len(SUGGESTIONS) != 0 {
+				SELECTED_SUGGESTION += 1
+				if SELECTED_SUGGESTION >= len(SUGGESTIONS) {
+					SELECTED_SUGGESTION = 0
+				}
+			}else{
+				moveCursor(MOVE_DOWN, keepAnchor, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyUp {
-			moveCursor(MOVE_UP, keepAnchor, 1, edit)
+			if len(SUGGESTIONS) != 0 {
+				SELECTED_SUGGESTION -= 1
+				if SELECTED_SUGGESTION < 0 {
+					SELECTED_SUGGESTION = len(SUGGESTIONS)-1
+				}
+			}else{
+				moveCursor(MOVE_UP, keepAnchor, 1, edit)
+			}
 		}else if ev.Key() == tcell.KeyLeft {
 			if control_held {
 				moveCursor(WORD_LEFT, keepAnchor, 1, edit)
@@ -1181,12 +1333,22 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 			moveCursor(START_OF_LINE, false, 1, edit)
 		}else if ev.Key() == tcell.KeyEnter && !SHOWING_FIND {
 			insertNewLine(edit)
+			hideSuggestions()
 		}else if ev.Key() == tcell.KeyCtrlA {
 			edit.cursor.row_anchor = 0
 			edit.cursor.col_anchor = 0
 			moveCursor(FULL_END, true, 1, edit)
+		}else if rune == '\t' {
+			if edit.is_main && len(SUGGESTIONS) != 0{
+				activateSuggestion()
+			}else{
+				insertText(edit, "\t")
+			}
 		}else {
 			insertText(edit, string(rawrune))
+			if edit.is_main && rune != ' ' {
+				readySuggestion()
+			}
 		}
 	}
 	
