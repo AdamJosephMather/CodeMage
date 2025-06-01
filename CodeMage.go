@@ -89,6 +89,10 @@ var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "m
 
 var MAIN_TEXTEDIT Edit
 var INPT_TEXTEDIT Edit
+var FIND_TEXTEDIT Edit
+var REPLACE_TEXTEDIT Edit
+var SHOWING_FIND bool
+var USING_REPLACE bool // if false, find, else replace
 var INPUT_MODAL_CALLBACK func() = nil
 var SHOWING_INPUT_MODAL bool
 var SHOWING_INPUT_BOOL bool
@@ -130,7 +134,7 @@ var APP_CONFIG_DIR string
 var titleColor = tcell.NewRGBColor(25, 25, 25)
 var highlightColor = tcell.NewRGBColor(100, 100, 100)
 var lineNumberColor = tcell.NewRGBColor(50, 50, 50)
-var stringColor = tcell.NewRGBColor(127, 173, 94)
+var colorSTRING = tcell.NewRGBColor(127, 173, 94)
 var colorFUNCTION = tcell.NewRGBColor(199, 157, 78)
 var colorKEYWORD = tcell.NewRGBColor(176, 95, 199)
 var colorNAME = tcell.NewRGBColor(245, 91, 102)
@@ -139,6 +143,8 @@ var colorCOMMENT = tcell.NewRGBColor(127, 132, 142)
 var colorLITTERAL = tcell.NewRGBColor(194, 127, 64)
 var colorBackground = tcell.NewRGBColor(15, 15, 15)
 var colorSpecial = tcell.NewRGBColor(219, 150, 53)
+
+var CURRENT_TEXT_EDIT string = "main"
 
 var SCROLL_SENSITIVITY int
 
@@ -185,9 +191,24 @@ func setupUI() {
 	INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
 	INPT_TEXTEDIT.use_line_numbers = false
 	
+	FIND_TEXTEDIT = createEdit()
+	FIND_TEXTEDIT.height = 1
+	FIND_TEXTEDIT.width = width-4
+	FIND_TEXTEDIT.row = height-4
+	FIND_TEXTEDIT.col = 2
+	FIND_TEXTEDIT.use_line_numbers = false
+	
+	REPLACE_TEXTEDIT = createEdit()
+	REPLACE_TEXTEDIT.height = 1
+	REPLACE_TEXTEDIT.width = width-4
+	REPLACE_TEXTEDIT.row = height-2
+	REPLACE_TEXTEDIT.col = 2
+	REPLACE_TEXTEDIT.use_line_numbers = false
+	
 	SHOWING_INPUT_MODAL = false
 	SHOWING_INPUT_BOOL = false
 	CURRENT_SELECTED_BOOL = true
+	CURRENT_TEXT_EDIT = "main"
 	
 	redrawFullScreen()
 }
@@ -337,7 +358,7 @@ func repeatSlice[T any](s T, n int) []T {
 	return repeated
 }
 
-func drawEdit(edit *Edit) {
+func drawEdit(edit *Edit, is_current bool) {
 	checkForStyleUpdates(edit)
 	
 	buffer := edit.buffer
@@ -437,7 +458,7 @@ func drawEdit(edit *Edit) {
 		styles := []tcell.Style{}
 		
 		for true {
-			is_cursor := curs_line && charIndx == curs_char
+			is_cursor := curs_line && charIndx == curs_char && is_current
 			is_in_highlight := charIndx > minRng && charIndx < maxRng
 			
 			cur_style := DEF_STYLE
@@ -525,14 +546,21 @@ func drawOutline(edit *Edit, style tcell.Style, text string) {
 }
 
 func drawFullEdit() {
-	drawEdit(&MAIN_TEXTEDIT)
+	drawEdit(&MAIN_TEXTEDIT, CURRENT_TEXT_EDIT == "main")
 	
 	if SHOWING_INPUT_MODAL {
 		drawOutline(&INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
-		drawEdit(&INPT_TEXTEDIT)
+		drawEdit(&INPT_TEXTEDIT, CURRENT_TEXT_EDIT == "inpt")
 	}else if SHOWING_INPUT_BOOL {
 		drawOutline(&INPT_TEXTEDIT, TITLE_STYLE, INPUT_MODAL_LABEL)
 		drawYesNo()
+	}
+	
+	if SHOWING_FIND {
+		drawEdit(&FIND_TEXTEDIT, CURRENT_TEXT_EDIT == "find")
+		drawEdit(&REPLACE_TEXTEDIT, CURRENT_TEXT_EDIT == "replace")
+		drawOutline(&FIND_TEXTEDIT, TITLE_STYLE, "Find Text")
+		drawOutline(&REPLACE_TEXTEDIT, TITLE_STYLE, "Replace With")
 	}
 	
 	drawTitleBar()
@@ -572,12 +600,31 @@ func redrawFullScreen() {
 		}
 	}else if current_window == "edit" {
 		MAIN_TEXTEDIT.width = width
-		MAIN_TEXTEDIT.height = height-1
+		
+		if SHOWING_FIND {
+			MAIN_TEXTEDIT.height = height-6
+			
+			if MAIN_TEXTEDIT.height < 1 {
+				MAIN_TEXTEDIT.height = 1
+			}
+		}else{
+			MAIN_TEXTEDIT.height = height-1
+		}
 		
 		INPT_TEXTEDIT.width = 30
 		INPT_TEXTEDIT.height = 3
 		INPT_TEXTEDIT.row = height/2-1
 		INPT_TEXTEDIT.col = (width-INPT_TEXTEDIT.width)/2
+		
+		FIND_TEXTEDIT.width = width-4
+		FIND_TEXTEDIT.height = 1
+		FIND_TEXTEDIT.row = height-4
+		FIND_TEXTEDIT.col = 2
+		
+		REPLACE_TEXTEDIT.width = width-4
+		REPLACE_TEXTEDIT.height = 1
+		REPLACE_TEXTEDIT.row = height-2
+		REPLACE_TEXTEDIT.col = 2
 		
 		drawFullEdit()
 	}
@@ -815,7 +862,9 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	
 	control_held := ev.Modifiers()&tcell.ModCtrl  != 0
 	alt_held     := ev.Modifiers()&tcell.ModAlt   != 0
+	shift_held   := ev.Modifiers()&tcell.ModShift != 0
 	keepAnchor   := ev.Modifiers()&tcell.ModShift != 0
+	handled := false
 	
 	if ev.Key() == tcell.KeyCtrlQ {
 		return true
@@ -837,6 +886,10 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		return false
 	}else if ev.Key() == tcell.KeyCtrlG {
 		openFileByUser(filepath.Join(APP_CONFIG_DIR, "allSettings.cdmg"))
+		return false
+	}else if ev.Key() == tcell.KeyCtrlF {
+		openFindMenu()
+		return false
 	}
 	
 	if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
@@ -850,9 +903,37 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		
 		if ev.Key() == tcell.KeyEnter || ((ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc) && INPT_TEXTEDIT.current_mode == "n") {
 			SHOWING_INPUT_MODAL = false
+			if SHOWING_FIND {
+				CURRENT_TEXT_EDIT = "find"
+				if USING_REPLACE {
+					CURRENT_TEXT_EDIT = "replace"
+				}
+			}else{
+				CURRENT_TEXT_EDIT = "main"
+			}
+			
 			if INPUT_MODAL_CALLBACK != nil {
 				INPUT_MODAL_CALLBACK()
 			}
+		}
+	}
+	
+	if SHOWING_FIND {
+		if (ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyEsc) && edit.current_mode == "n" {
+			closeFindMenu()
+			handled = true
+		}
+		
+		if ev.Key() == tcell.KeyCtrlR || (edit.current_mode == "n" && (rune == 'r' || rune == 'f')) {
+			USING_REPLACE = !USING_REPLACE
+			CURRENT_TEXT_EDIT = "find"
+			if USING_REPLACE {
+				CURRENT_TEXT_EDIT = "replace"
+			}
+			handled = true
+		}else if ev.Key() == tcell.KeyEnter {
+			findMenuTriggered(shift_held)
+			handled = true
 		}
 	}
 	
@@ -865,7 +946,7 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		
 	}
 	
-	if edit.current_mode == "n" {
+	if edit.current_mode == "n" && !handled {
 		if strings.Contains(NUMBERS, string(rune)) {
 			edit.number_string += string(rune)
 		}else {
@@ -957,12 +1038,14 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 			}else{
 				deleteText(DELETE, 1, edit)
 			}
-		}else if ev.Key() == tcell.KeyEnter {
+		}else if ev.Key() == tcell.KeyEnter && !SHOWING_FIND {
 			insertText(edit, "\n")
 		}else if rune == '\t' {
 			insertText(edit, "\t")
+		}else if rune == 'f' {
+			openFindMenu()
 		}
-	}else if edit.current_mode == "i"{
+	}else if edit.current_mode == "i" && !handled{
 		if ev.Key() == tcell.KeyEscape {
 			edit.current_mode = "n"
 			edit.number_string = ""
@@ -999,7 +1082,7 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 			moveCursor(END_OF_LINE, keepAnchor, 1, edit)
 		}else if ev.Key() == tcell.KeyHome {
 			moveCursor(START_OF_LINE, false, 1, edit)
-		}else if ev.Key() == tcell.KeyEnter {
+		}else if ev.Key() == tcell.KeyEnter && !SHOWING_FIND {
 			insertNewLine(edit)
 		}else if ev.Key() == tcell.KeyCtrlA {
 			edit.cursor.row_anchor = 0
@@ -1015,6 +1098,33 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	readyUndoHistory(edit)
 	
 	return false
+}
+
+func findMenuTriggered(backwards bool) {
+	
+}
+
+func closeFindMenu() {
+	SHOWING_FIND = false
+	CURRENT_TEXT_EDIT = "main"
+	redrawFullScreen()
+}
+
+func openFindMenu() {
+	txt := getCursorSelection(&MAIN_TEXTEDIT)
+	
+	if txt != "" {
+		FIND_TEXTEDIT.buffer = []Line{{text: txt, changed: true}}
+		FIND_TEXTEDIT.cursor.row = len(FIND_TEXTEDIT.buffer)-1
+		FIND_TEXTEDIT.cursor.col = len(FIND_TEXTEDIT.buffer[FIND_TEXTEDIT.cursor.row].text)
+		FIND_TEXTEDIT.cursor.col_anchor = 0
+		FIND_TEXTEDIT.cursor.row_anchor = 0
+	}
+	
+	SHOWING_FIND = true
+	CURRENT_TEXT_EDIT = "find"
+	USING_REPLACE = false
+	redrawFullScreen()
 }
 
 func showCursor(edit *Edit) {
@@ -1039,9 +1149,15 @@ func showCursor(edit *Edit) {
 	}
 	
 	if real_row <= showing_row_start {
-		edit.toprow = real_row
-	}else if real_row >= showing_row_end {
-		edit.toprow += real_row-showing_row_end
+		edit.toprow = real_row-7
+		if edit.toprow < 0 {
+			edit.toprow = 0
+		}
+	}else if real_row > showing_row_end {
+		edit.toprow += real_row-showing_row_end+7
+		if edit.toprow+edit.height > len(edit.buffer) {
+			edit.toprow = len(edit.buffer)-edit.height
+		}
 	}
 }
 
@@ -1152,10 +1268,20 @@ func readyUndoHistory(edit *Edit) {
 
 func handleKey(ev *tcell.EventKey) bool { // called in edit mode
 	if SHOWING_INPUT_MODAL {
+		CURRENT_TEXT_EDIT = "inpt"
 		return editHandleKey(ev, &INPT_TEXTEDIT)
 	}else if SHOWING_INPUT_BOOL {
+		CURRENT_TEXT_EDIT = "bool"
 		boolHandleKey(ev)
+	}else if SHOWING_FIND {
+		if USING_REPLACE {
+			CURRENT_TEXT_EDIT = "replace"
+			return editHandleKey(ev, &REPLACE_TEXTEDIT)
+		}
+		CURRENT_TEXT_EDIT = "find"
+		return editHandleKey(ev, &FIND_TEXTEDIT)
 	}else{
+		CURRENT_TEXT_EDIT = "main"
 		return editHandleKey(ev, &MAIN_TEXTEDIT)
 	}
 	
@@ -1375,8 +1501,12 @@ func handleMouse(ev *tcell.EventMouse) bool {
 	}
 	if buttons&tcell.WheelDown != 0 {
 		MAIN_TEXTEDIT.toprow += SCROLL_SENSITIVITY
-		if MAIN_TEXTEDIT.toprow > len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height {
+		if MAIN_TEXTEDIT.toprow >= len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height {
 			MAIN_TEXTEDIT.toprow = len(MAIN_TEXTEDIT.buffer)-MAIN_TEXTEDIT.height
+			
+			if MAIN_TEXTEDIT.toprow < 0 {
+				MAIN_TEXTEDIT.toprow = 0
+			}
 		}
 	}
 	
@@ -1438,6 +1568,7 @@ func getTextInput(text string) {
 	INPT_TEXTEDIT.cursor.col_anchor = 0
 	
 	SHOWING_INPUT_MODAL = true
+	CURRENT_TEXT_EDIT = "inpt"
 	INPUT_MODAL_LABEL = text
 }
 
@@ -1563,6 +1694,7 @@ func continueCheckForSave() {
 
 func displayError(errorMessage string) {
 	SHOWING_INPUT_MODAL = true
+	CURRENT_TEXT_EDIT = "inpt"
 	
 	INPT_TEXTEDIT.cursor.row = 0
 	INPT_TEXTEDIT.cursor.col = 0
@@ -1655,7 +1787,7 @@ func loadSettings() {
 		displayError("Error reading lines: " + err.Error())
 	}
 	
-	stringColor = getTcellColor(getSpecificVar(known,"stringColor"), tcell.NewRGBColor(127, 173, 94))
+	colorSTRING = getTcellColor(getSpecificVar(known,"colorSTRING"), tcell.NewRGBColor(127, 173, 94))
 	colorFUNCTION = getTcellColor(getSpecificVar(known,"colorFUNCTION"), tcell.NewRGBColor(199, 157, 78))
 	colorKEYWORD = getTcellColor(getSpecificVar(known,"colorKEYWORD"), tcell.NewRGBColor(176, 95, 199))
 	colorNAME = getTcellColor(getSpecificVar(known,"colorNAME"), tcell.NewRGBColor(245, 91, 102))
@@ -1665,7 +1797,7 @@ func loadSettings() {
 	SCROLL_SENSITIVITY = getInt(getSpecificVar(known,"SCROLL_SENSITIVITY"), 3)
 }
 
-func getStringColor(col tcell.Color) string {
+func getcolorSTRING(col tcell.Color) string {
 	r, g, b := col.RGB()
 	return strconv.Itoa(int(r))+", "+strconv.Itoa(int(g))+", "+strconv.Itoa(int(b))
 }
@@ -1783,15 +1915,15 @@ func saveSettings() {
 	
 	settings_lines := []string{}
 	
-	settings_lines = append(settings_lines, "")
-	
-	settings_lines = append(settings_lines, "stringColor: "+getStringColor(stringColor))
-	settings_lines = append(settings_lines, "colorFUNCTION: "+getStringColor(colorFUNCTION))
-	settings_lines = append(settings_lines, "colorKEYWORD: "+getStringColor(colorKEYWORD))
-	settings_lines = append(settings_lines, "colorNAME: "+getStringColor(colorNAME))
-	settings_lines = append(settings_lines, "colorPUNC: "+getStringColor(colorPUNC))
-	settings_lines = append(settings_lines, "colorCOMMENT: "+getStringColor(colorCOMMENT))
-	settings_lines = append(settings_lines, "colorLITTERAL: "+getStringColor(colorLITTERAL))
+	settings_lines = append(settings_lines, "Syntax colors for syntax highligting in RGB")
+	settings_lines = append(settings_lines, "colorSTRING: "+getcolorSTRING(colorSTRING))
+	settings_lines = append(settings_lines, "colorFUNCTION: "+getcolorSTRING(colorFUNCTION))
+	settings_lines = append(settings_lines, "colorKEYWORD: "+getcolorSTRING(colorKEYWORD))
+	settings_lines = append(settings_lines, "colorNAME: "+getcolorSTRING(colorNAME))
+	settings_lines = append(settings_lines, "colorPUNC: "+getcolorSTRING(colorPUNC))
+	settings_lines = append(settings_lines, "colorCOMMENT: "+getcolorSTRING(colorCOMMENT))
+	settings_lines = append(settings_lines, "colorLITTERAL: "+getcolorSTRING(colorLITTERAL))
+	settings_lines = append(settings_lines, "\nDecreasing scroll sensitivity helps make the scrolling look better (lesser changes), but it must be an int >= 0.")
 	settings_lines = append(settings_lines, "SCROLL_SENSITIVITY: "+strconv.Itoa(SCROLL_SENSITIVITY))
 	
 	os.WriteFile(settings_path, []byte(strings.Join(settings_lines, "\n")), 0644)
@@ -1851,7 +1983,7 @@ func main() {
 	TITLE_STYLE = tcell.StyleDefault.Background(titleColor).Foreground(tcell.ColorWhite)
 	HIGHLIGHT_STYLE = tcell.StyleDefault.Background(highlightColor).Foreground(tcell.ColorWhite)
 	LINE_NUMBER_STYLE = tcell.StyleDefault.Background(lineNumberColor).Foreground(tcell.ColorWhite)
-	STRING_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(stringColor)
+	STRING_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorSTRING)
 	NORMAL_MODE_STYLE = tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorBlack)
 	FUNCTION_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorFUNCTION)
 	KEYWORD_STYLE = tcell.StyleDefault.Background(colorBackground).Foreground(colorKEYWORD)
