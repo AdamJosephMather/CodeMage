@@ -1100,8 +1100,71 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	return false
 }
 
-func findMenuTriggered(backwards bool) {
+func runFind(backwards bool) {
+	searchingfor := strings.ToLower(getPlainText(&FIND_TEXTEDIT))
+	if searchingfor == ""{
+		return
+	}
 	
+	realline := MAIN_TEXTEDIT.cursor.row
+	
+	for fakeline := range len(MAIN_TEXTEDIT.buffer)+1 {
+		linetext := strings.ToLower(MAIN_TEXTEDIT.buffer[realline].text)
+		
+		if strings.Contains(linetext, searchingfor) {
+			indx := -1
+			
+			if fakeline == 0 {
+				if !backwards{
+					if MAIN_TEXTEDIT.cursor.col < len(linetext) {
+						textAftrIndx := linetext[MAIN_TEXTEDIT.cursor.col_anchor+1:]
+						if strings.Contains(textAftrIndx, searchingfor) {
+							indx = strings.Index(textAftrIndx, searchingfor) + MAIN_TEXTEDIT.cursor.col_anchor+1
+						}
+					}
+				}else{
+					if MAIN_TEXTEDIT.cursor.col_anchor > 0 {
+						textBfrIndx := linetext[:MAIN_TEXTEDIT.cursor.col-1]
+						if strings.Contains(textBfrIndx, searchingfor) {
+							indx = strings.LastIndex(textBfrIndx, searchingfor)
+						}
+					}
+				}
+			}else{
+				if !backwards{
+					indx = strings.Index(linetext, searchingfor)
+				}else{
+					indx = strings.LastIndex(linetext, searchingfor)
+				}
+			}
+			
+			if indx != -1 {
+				MAIN_TEXTEDIT.cursor.row = realline
+				MAIN_TEXTEDIT.cursor.row_anchor = realline
+				MAIN_TEXTEDIT.cursor.col = indx+len(searchingfor)
+				MAIN_TEXTEDIT.cursor.col_anchor = indx
+				return
+			}
+		}
+		
+		if !backwards{
+			realline ++
+			if realline >= len(MAIN_TEXTEDIT.buffer) {
+				realline = 0
+			}
+		}else{
+			realline --
+			if realline < 0 {
+				realline = len(MAIN_TEXTEDIT.buffer)-1
+			}
+		}
+	}
+}
+
+func findMenuTriggered(backwards bool) {
+	if !USING_REPLACE {
+		runFind(backwards)
+	}
 }
 
 func closeFindMenu() {
