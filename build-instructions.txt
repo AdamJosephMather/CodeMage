@@ -1,0 +1,3 @@
+Build cmd:
+
+go build -o cdmg.exe
