@@ -1161,9 +1161,39 @@ func runFind(backwards bool) {
 	}
 }
 
+func runReplace(backwards bool) {
+	searchingfor := strings.ToLower(getPlainText(&FIND_TEXTEDIT))
+	
+	if searchingfor == "" {
+		return
+	}
+	
+	selected := strings.ToLower(getCursorSelection(&MAIN_TEXTEDIT))
+	repText := getPlainText(&REPLACE_TEXTEDIT)
+	
+	if searchingfor == selected {
+		insertText(&MAIN_TEXTEDIT, repText)
+		if backwards {
+			MAIN_TEXTEDIT.cursor.col -= len(repText)
+			MAIN_TEXTEDIT.cursor.col_anchor -= len(repText)
+			
+			if MAIN_TEXTEDIT.cursor.col < 0 { // this shouldn't ever be true... but might as well?
+				MAIN_TEXTEDIT.cursor.col = 0
+				MAIN_TEXTEDIT.cursor.col_anchor = 0
+			}
+		}
+	}
+	
+	runFind(backwards)
+	
+	readyUndoHistory(&MAIN_TEXTEDIT)
+}
+
 func findMenuTriggered(backwards bool) {
 	if !USING_REPLACE {
 		runFind(backwards)
+	}else {
+		runReplace(backwards)
 	}
 }
 
@@ -1178,11 +1208,12 @@ func openFindMenu() {
 	
 	if txt != "" {
 		FIND_TEXTEDIT.buffer = []Line{{text: txt, changed: true}}
-		FIND_TEXTEDIT.cursor.row = len(FIND_TEXTEDIT.buffer)-1
-		FIND_TEXTEDIT.cursor.col = len(FIND_TEXTEDIT.buffer[FIND_TEXTEDIT.cursor.row].text)
-		FIND_TEXTEDIT.cursor.col_anchor = 0
-		FIND_TEXTEDIT.cursor.row_anchor = 0
 	}
+	
+	FIND_TEXTEDIT.cursor.row = len(FIND_TEXTEDIT.buffer)-1
+	FIND_TEXTEDIT.cursor.col = len(FIND_TEXTEDIT.buffer[FIND_TEXTEDIT.cursor.row].text)
+	FIND_TEXTEDIT.cursor.col_anchor = 0
+	FIND_TEXTEDIT.cursor.row_anchor = 0
 	
 	SHOWING_FIND = true
 	CURRENT_TEXT_EDIT = "find"
