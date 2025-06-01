@@ -88,7 +88,7 @@ var COMMENT_STYLE tcell.Style
 var LITTERAL_STYLE tcell.Style
 var SPECIAL_STYLE tcell.Style
 
-var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null", "try", "catch", "except", "default"}
+var KEYWORDS []string = []string{"if", "elif", "else", "var", "let", "const", "mut", "return", "break", "yield", "continue", "case", "switch", "func", "def", "fun", "function", "define", "import", "for", "while", "type", "struct", "package", "nil", "false", "true", "none", "False", "True", "None", "Null", "null", "try", "catch", "except", "default", "class", "from", "in", "not", "is", "foreach"}
 
 var MAIN_TEXTEDIT Edit
 var INPT_TEXTEDIT Edit
