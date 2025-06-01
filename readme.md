@@ -1,5 +1,7 @@
 # CodeMage - Terminal-Based Text Editor
 
+<img width="1128" alt="image" src="https://github.com/user-attachments/assets/7f12bdcb-a6bf-4d0c-899f-2aa3c49e9cc2" />
+
 ## Overview
 
 CodeMage is a terminal-based text editor developed in Go, designed to provide an efficient, lightweight, and customizable editing experience within the terminal.  It serves as a streamlined counterpart to CodeWizard, offering core editing features without the overhead of a graphical interface. 
