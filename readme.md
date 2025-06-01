@@ -1,10 +1,10 @@
-CodeMage - Terminal-Based Text Editor
+# CodeMage - Terminal-Based Text Editor
 
-Overview
+## Overview
 
 CodeMage is a terminal-based text editor developed in Go, designed to provide an efficient, lightweight, and customizable editing experience within the terminal.  It serves as a streamlined counterpart to CodeWizard, offering core editing features without the overhead of a graphical interface. 
 
-Features
+## Features
 
 Syntax Highlighting: Real-time syntax highlighting for popular programming languages.
 
@@ -19,7 +19,7 @@ Search and Replace: Built-in find and replace functionality.
 Customizable Styles: Adjust color themes and text styles to enhance readability. 
 
 
-Installation
+## Installation
 
 1. Clone the repository:
 
@@ -31,14 +31,14 @@ cd CodeMage
 
 go get
 
-
 3. Build and run:
 
 go build -o cdmg
-cdmg  
-  
-or  
-  
+
+cdmg
+
+or
+
 cdmg [filename]
 
 3. Enjoy
@@ -50,7 +50,7 @@ Switch modes for different editing functionalities.
 Save, undo, redo, and manage files directly from the terminal.
 
 
-Shortcuts
+## Shortcuts
 
 Ctrl + S: Save file.
 
