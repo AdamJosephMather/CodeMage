@@ -147,6 +147,7 @@ var colorSpecial = tcell.NewRGBColor(219, 150, 53)
 var CURRENT_TEXT_EDIT string = "main"
 
 var SCROLL_SENSITIVITY int
+var CUR_X, CUR_Y int
 
 func emitStr(x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
@@ -569,9 +570,32 @@ func drawFullEdit() {
 func drawTitleBar() {
 	w, _ := s.Size()
 	
+	hoverings := getHovering([]string{"settings", "help"})
+	
+	emitStr(0, 0, TITLE_STYLE, strings.Repeat(" ", w))
+	
+	if hoverings[0] {
+		emitStr(1, 0, HIGHLIGHT_STYLE, "Settings")
+	}else{
+		emitStr(1, 0, TITLE_STYLE, "Settings")
+	}
+	
+	if hoverings[1] {
+		emitStr(len(" Settings "), 0, HIGHLIGHT_STYLE, "Help")
+	}else{
+		emitStr(len(" Settings "), 0, TITLE_STYLE, "Help")
+	}
+	
+	
 	text := "CodeMage V"+version+" - "+title
-	text += strings.Repeat(" ", w-len(text))
-	emitStr(0, 0, TITLE_STYLE, text)
+	startPoint := int(w/2-len(text)/2)
+	
+	if startPoint < len(" settings help ") {
+		text = title
+		startPoint = int(w/2-len(text)/2)
+	}
+	
+	emitStr(startPoint, 0, TITLE_STYLE, text)
 	
 	text = "ERROR IN MAKING THE TITLEBAR?"
 	if MAIN_TEXTEDIT.current_mode == "n" {
@@ -943,7 +967,6 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		if err == nil && repeatCount != 0{
 			repeatCount = vl
 		}
-		
 	}
 	
 	if edit.current_mode == "n" && !handled {
@@ -1579,11 +1602,41 @@ func moveCursor(action int, keepAnchor bool, repeat int, edit *Edit) {
 	}
 }
 
+func getHovering(buttons []string) []bool {
+	out := []bool{}
+	curx := 0
+	
+	for _, button := range buttons {
+		if CUR_X > curx && CUR_X <= curx+len(button) && CUR_Y == 0 {
+			out = append(out, true)
+		}else{
+			out = append(out, false)
+		}
+		curx += len(button) + 1
+	}
+	
+	return out
+}
+
 func handleMouse(ev *tcell.EventMouse) bool {
 	buttons := ev.Buttons()
 	x, y := ev.Position()
 	
+	CUR_X, CUR_Y = x, y
+	hoverings := getHovering([]string{"settings", "help"})
+	drawTitleBar()
+	
 	if buttons&tcell.Button1 == 0 {
+		if BUTTON_DOWN {
+			if y == 0 {
+				if hoverings[0] {
+					openFileByUser(filepath.Join(APP_CONFIG_DIR, "allSettings.cdmg"))
+				}else if hoverings[1] {
+					openFileByUser(filepath.Join(APP_CONFIG_DIR, "help.cdmg"))
+				}
+			}
+		}
+		
 		BUTTON_DOWN = false
 	}
 	
@@ -1998,6 +2051,11 @@ func getSavedPlace() {
 	}
 }
 
+func writeHelp() {
+	settings_path := filepath.Join(APP_CONFIG_DIR, "help.cdmg")
+	os.WriteFile(settings_path, []byte("# CodeMage V"+version+"\n\n# A terminal editor designed by Adam Mather.\n\n# Multi-modality:\n\t# CodeMage is designed with a multimodal setup from the start. It's designed to be similar to the CodeWizard 'VIM' mode. Help is available in CodeWizard.\n\n# For any more help contact Adam Mather (lol). adamjosephmather@gmail.com"), 0644)
+}
+
 func saveSettings() {
 	_, err := os.Stat(APP_CONFIG_DIR);
 	
@@ -2027,6 +2085,7 @@ func main() {
 	getConfigDir()
 	loadSettings()
 	saveSettings()
+	writeHelp()
 	
 	if len(os.Args) > 1 {
 		file_name = os.Args[1]
