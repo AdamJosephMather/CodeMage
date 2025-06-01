@@ -975,8 +975,19 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		return false
 	}else if rune == '[' && edit.current_mode == "n" {
 		deindent(edit)
+		handled = true
 	}else if rune == ']' && edit.current_mode == "n" {
 		indent(edit)
+		handled = true
+	}else if ev.Key() == tcell.KeyCtrlC {
+		textToCopy := getCursorSelection(edit)
+		clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		handled = true
+	}else if ev.Key() == tcell.KeyCtrlX {
+		textToCopy := getCursorSelection(edit)
+		clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		insertText(edit, "")
+		handled = true
 	}
 	
 	if SHOWING_INPUT_MODAL { // this is the thing... for alt+s (or general requests for text.)
@@ -1229,6 +1240,7 @@ func runFind(backwards bool) {
 				MAIN_TEXTEDIT.cursor.row_anchor = realline
 				MAIN_TEXTEDIT.cursor.col = indx+len(searchingfor)
 				MAIN_TEXTEDIT.cursor.col_anchor = indx
+				showCursor(&MAIN_TEXTEDIT)
 				return
 			}
 		}
@@ -1273,6 +1285,8 @@ func runReplace(backwards bool) {
 	runFind(backwards)
 	
 	readyUndoHistory(&MAIN_TEXTEDIT)
+	
+	showCursor(&MAIN_TEXTEDIT)
 }
 
 func findMenuTriggered(backwards bool) {
@@ -2227,10 +2241,6 @@ func main() {
 		
 		switch ev := ev.(type) {
 		case *tcell.EventKey:
-//			if ev.Key() == tcell.KeyEscape {
-//				return
-//			}
-			
 			if current_window != "edit"{
 				current_window = "edit"
 				createNew()
