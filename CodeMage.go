@@ -1887,7 +1887,7 @@ func nextOpenFileByUser() {
 
 func checkForSave() {
 	INPUT_MODAL_CALLBACK = continueCheckForSave
-	getBoolInput("Unsaved, changes save?")
+	getBoolInput("Unsaved changes, save?")
 }
 
 
