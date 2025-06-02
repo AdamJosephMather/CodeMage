@@ -715,15 +715,14 @@ func redrawFullScreen() {
 func ContainsString(slice []string, str string) bool {
 	for _, v := range slice {
 		if v == str {
-			return true // Found the string
+			return true
 		}
 	}
-	return false // String not found in the slice
+	return false
 }
 
 func deleteText(mode, repeat int, edit *Edit) {
 	if edit.cursor.row != edit.cursor.row_anchor || edit.cursor.col != edit.cursor.col_anchor {
-		// find the bottom of the selection, calculate the number of characters to delete, call delete with said repeat, exit.
 		cursor := edit.cursor
 		
 		end_row := cursor.row
@@ -744,8 +743,8 @@ func deleteText(mode, repeat int, edit *Edit) {
 			start := line.text[:start_col]
 			end := line.text[end_col:]
 			
-			edit.buffer[start_row].text = start + end // delete section
-			edit.buffer[start_row].changed = true // delete section
+			edit.buffer[start_row].text = start + end
+			edit.buffer[start_row].changed = true
 		}else{
 			first_line := edit.buffer[start_row].text[:start_col]
 			last_line := edit.buffer[end_row].text[end_col:]
