@@ -156,6 +156,9 @@ var SCROLL_SENSITIVITY int
 var CUR_X, CUR_Y int
 var CUR_CURS_X, CUR_CURS_Y int
 
+var USE_CLIP bool
+var CLIP_BUFF string
+
 func emitStr(x, y int, style tcell.Style, str string) {
 	for i, r := range []rune(str) {
 		s.SetContent(x+i, y, r, nil, style)
@@ -1054,8 +1057,8 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 	
 	control_held := ev.Modifiers()&tcell.ModCtrl  != 0
 	alt_held     := ev.Modifiers()&tcell.ModAlt   != 0
-	shift_held   := ev.Modifiers()&tcell.ModShift != 0
-	keepAnchor   := ev.Modifiers()&tcell.ModShift != 0
+	shift_held   := ev.Modifiers()&tcell.ModShift != 0 || rune != rawrune
+	keepAnchor   := shift_held
 	handled := false
 	
 	if ev.Key() == tcell.KeyCtrlQ {
@@ -1090,11 +1093,21 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 		handled = true
 	}else if ev.Key() == tcell.KeyCtrlC {
 		textToCopy := getCursorSelection(edit)
-		clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		if USE_CLIP {
+			clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		}else{
+			CLIP_BUFF = textToCopy
+		}
+		
 		handled = true
 	}else if ev.Key() == tcell.KeyCtrlX {
 		textToCopy := getCursorSelection(edit)
-		clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		if USE_CLIP {
+			clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+		}else{
+			CLIP_BUFF = textToCopy
+		}
+		
 		insertText(edit, "")
 		handled = true
 	}
@@ -1217,14 +1230,25 @@ func editHandleKey(ev *tcell.EventKey, edit *Edit) bool {
 			edit.number_string = ""
 			drawTitleBar()
 		}else if rune == 'v' {
-			text := clipboard.Read(clipboard.FmtText)
-			insertText(edit, string(text))
+			if USE_CLIP {
+				insertText(edit, string(clipboard.Read(clipboard.FmtText)))
+			}else{
+				insertText(edit, CLIP_BUFF)
+			}
 		}else if rune == 'c' {
 			textToCopy := getCursorSelection(edit)
-			clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+			if USE_CLIP {
+				clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+			}else{
+				CLIP_BUFF = textToCopy
+			}
 		}else if rune == 'x' {
 			textToCopy := getCursorSelection(edit)
-			clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+			if USE_CLIP {
+				clipboard.Write(clipboard.FmtText, []byte(textToCopy))
+			}else{
+				CLIP_BUFF = textToCopy
+			}
 			deleteText(BACKSPACE, 1, edit)
 		}else if rune == 'i' {
 			edit.current_mode = "i"
@@ -2352,9 +2376,11 @@ func main() {
 		title = filepath.Base(cleanedPath)
 	}
 	
+	USE_CLIP = true
 	err := clipboard.Init()
 	if err != nil {
-		log.Fatalf("%+v", err)
+		fmt.Println(err)
+		USE_CLIP = false
 	}
 	
 	s, err = tcell.NewScreen()
