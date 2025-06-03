@@ -2159,6 +2159,10 @@ func getTcellColor(inpt string, def tcell.Color) tcell.Color {
 }
 
 func getInt(found string, def int) int {
+	if found == "" {
+		return def
+	}
+	
 	vl, err := strconv.Atoi(found)
 	if err != nil {
 		return def
