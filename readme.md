@@ -62,7 +62,7 @@ Ctrl + Y: Redo.
 
 Ctrl + F: Find text.
 
-Ctrl + R: Replace text.
+(insert all of the others here - I know nobody's using this but me...)
 
 Esc: Switch modes (command/edit). 
 
