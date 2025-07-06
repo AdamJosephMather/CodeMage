@@ -344,7 +344,7 @@ func checkForStyleUpdates(edit *Edit) {
 			was_literal = is_literal
 			
 			prechar = char
-		}
+		} //
 		
 		if was_name {
 			if !slices.Contains(line.names, name) {
